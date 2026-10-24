@@ -11,9 +11,10 @@ Groundwork for the GoatTech firmware. Sources linked inline.
     offset, plain .bin from the SD card root)
   - CR4NS200320C14 - STM32F401RET6 (flashes from an /STM32F4_UPDATE/ folder)
 - A binary for one revision does not boot on the other. Board label and MCU
-  both need confirming before any binary is selected - at least one unit has
-  been reported with a C14 label but a GD chip, so neither label nor chip
-  brand alone is treated as proof.
+  both need confirming before any binary is selected - at least one
+  owner-reported unit had a C14 label with a GD chip, so neither label nor
+  chip brand alone is treated as proof:
+  https://www.reddit.com/r/Ender3V3SE/comments/1w38m12/mainboard_labeled_c14_but_chip_is_physically/
 - Sources:
   - https://wiki.creality.com/en/3d-printer-accessories/ender-3v3-se-c14-nebula-screen-firmware-upgrade
   - https://github.com/jpcurti/ender3-v3-se-klipper-with-display/issues/148
@@ -21,8 +22,9 @@ Groundwork for the GoatTech firmware. Sources linked inline.
 
 ## Stock firmware
 
-- Current official release: V1.1.0 (May 2025) on Creality's download page.
-  This is the recovery source - matched to the exact board before use.
+- Current official release listed on Creality's download page: V1.1.0
+  (the page lists May 11, 2025). This is the recovery source - matched to
+  the exact board before use.
 - Creality's published GPL source: https://github.com/CrealityOfficial/Ender-3V3-SE
 - Download page: https://www.creality.com/pages/download-ender-3-v3-se
 
@@ -31,7 +33,9 @@ Groundwork for the GoatTech firmware. Sources linked inline.
 1. navaismo/Ender-3V3-SE - "Community Edition" (GPLv3, ~300 stars).
    Marlin 2.0 based. Split level menu, 6x6 grid, fixed SD print info, CR Touch
    test UI, custom extrusion menu, buzzer mute, statistics, M593 input shaping,
-   M900 linear advance. Development ended - the C13 ran out of flash/RAM.
+   M900 linear advance. Superseded by the same author's Marlin 2.1 port: the
+   project README states the author ended C13 development after hitting the
+   board's flash/RAM limits and moved work to the 2.1 repo.
    https://github.com/navaismo/Ender-3V3-SE
 2. navaismo/Marlin_bugfix_2.1_E3V3SE - the active successor (GPLv3).
    Marlin bugfix-2.1.x. Branches: c13_sd, c13_octoprint, c14_sd, c14_octoprint.
