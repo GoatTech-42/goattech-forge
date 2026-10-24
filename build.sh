@@ -47,25 +47,34 @@ Confirm before flashing anything:
 BANNER
 
 WORK=".build/$BOARD"
-rm -rf "$WORK"
-mkdir -p "$WORK"
-echo "Cloning upstream $BRANCH @ $COMMIT"
-git clone --quiet "$UPSTREAM_URL" "$WORK/src"
-git -C "$WORK/src" checkout --quiet "$COMMIT"
-[ "$(git -C "$WORK/src" rev-parse HEAD)" = "$COMMIT" ] || fail "pinned commit checkout mismatch"
-
 CFG="$WORK/src/Marlin/Configuration.h"
+
+if [ -d "$WORK/src/.git" ] && [ "$(git -C "$WORK/src" rev-parse HEAD 2>/dev/null)" = "$COMMIT" ]; then
+  echo "Reusing staged upstream tree at $COMMIT (delete .build/$BOARD for a clean run)"
+else
+  rm -rf "$WORK"
+  mkdir -p "$WORK"
+  echo "Cloning upstream $BRANCH @ $COMMIT"
+  git clone --quiet "$UPSTREAM_URL" "$WORK/src"
+  git -C "$WORK/src" checkout --quiet "$COMMIT"
+  [ "$(git -C "$WORK/src" rev-parse HEAD)" = "$COMMIT" ] || fail "pinned commit checkout mismatch"
+fi
+
 AUTHOR_OLD='#define STRING_CONFIG_H_AUTHOR "Marlin, Creality, Kraplax & Navaismo" // Original author or contributor.'
 AUTHOR_NEW='#define STRING_CONFIG_H_AUTHOR "GoatTech build of Marlin by Creality, Kraplax \& Navaismo" // Original author or contributor.'
 NAME_OLD='#define CUSTOM_MACHINE_NAME "Ender-3 V3 SE"'
 NAME_NEW='#define CUSTOM_MACHINE_NAME "GoatTech Ender-3 V3 SE"'
 
-grep -qF "$AUTHOR_OLD" "$CFG" || fail "upstream author line changed; re-verify Configuration.h before branding"
-grep -qF "$NAME_OLD" "$CFG" || fail "upstream machine-name line changed; re-verify Configuration.h before branding"
-sed -i "s|$AUTHOR_OLD|$AUTHOR_NEW|" "$CFG"
-sed -i "s|$NAME_OLD|$NAME_NEW|" "$CFG"
-grep -qF 'GoatTech build of Marlin' "$CFG" || fail "branding did not apply (author)"
-grep -qF 'GoatTech Ender-3 V3 SE' "$CFG" || fail "branding did not apply (machine name)"
+if grep -qF 'GoatTech build of Marlin' "$CFG" && grep -qF 'GoatTech Ender-3 V3 SE' "$CFG"; then
+  echo "Branding already applied"
+else
+  grep -qF "$AUTHOR_OLD" "$CFG" || fail "upstream author line changed; re-verify Configuration.h before branding"
+  grep -qF "$NAME_OLD" "$CFG" || fail "upstream machine-name line changed; re-verify Configuration.h before branding"
+  sed -i "s|$AUTHOR_OLD|$AUTHOR_NEW|" "$CFG"
+  sed -i "s|$NAME_OLD|$NAME_NEW|" "$CFG"
+  grep -qF 'GoatTech build of Marlin' "$CFG" || fail "branding did not apply (author)"
+  grep -qF 'GoatTech Ender-3 V3 SE' "$CFG" || fail "branding did not apply (machine name)"
+fi
 
 echo "Building env $ENV_NAME (this downloads the toolchain on first run)"
 ( cd "$WORK/src" && "$PIO" run -e "$ENV_NAME" )
