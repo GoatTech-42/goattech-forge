@@ -25,10 +25,12 @@ fail() { echo "ERROR: $*" >&2; exit 1; }
 case "$1" in
   c13)
     BOARD=c13; BRANCH="$C13_BRANCH"; COMMIT="$C13_COMMIT"; ENV_NAME="$C13_ENV"
+    EXPECTED_CFG_SHA256="0e9b3e29366ae4818d76afda4739b7417cf35c8c3d710c32d2ebcfc162cac2ec"
     SD_NOTE="C13 (GD32F303RET6): copy the .bin onto the SD card root. Use a unique name per flash attempt if the bootloader ignores a repeated one."
     ;;
   c14)
     BOARD=c14; BRANCH="$C14_BRANCH"; COMMIT="$C14_COMMIT"; ENV_NAME="$C14_ENV"
+    EXPECTED_CFG_SHA256="0983a1f50ac5af1a8404622b78d91efcb936d00918b87a38cd2d8460a021e1c2"
     SD_NOTE="C14 (STM32F401RET6): place the .bin inside a folder named STM32F4_UPDATE on the SD card."
     ;;
   *) fail "Unknown board '$1'. Expected c13 or c14." ;;
@@ -54,19 +56,22 @@ AUTHOR_NEW='#define STRING_CONFIG_H_AUTHOR "GoatTech build of Marlin by Creality
 NAME_OLD='#define CUSTOM_MACHINE_NAME "Ender-3 V3 SE"'
 NAME_NEW='#define CUSTOM_MACHINE_NAME "GoatTech Ender-3 V3 SE"'
 
-# Reuse a staged tree only when the pin holds AND the entire worktree delta
-# vs HEAD is exactly the two-line branding change: no other modified, staged
-# or untracked files (ignored build outputs like .pio are not source inputs).
+# Reuse a staged tree only when the pin holds AND the worktree is exactly
+# "pinned source + the two-line branding patch", proven three ways:
+#   1. git status --porcelain is exactly one modified Marlin/Configuration.h
+#      (no other modified, staged or untracked entries);
+#   2. Configuration.h matches the per-board sha256 of the deterministic
+#      pinned-source + branding-patch content (full bytes, not a line count);
+#   3. no ignored entries outside .pio/ (upstream .gitignore can hide named
+#      source/build inputs; only the PlatformIO output dir is exempt).
 if [ -d "$WORK/src/.git" ] && [ "$(git -C "$WORK/src" rev-parse HEAD 2>/dev/null)" = "$COMMIT" ]; then
   PORCELAIN=$(git -C "$WORK/src" status --porcelain)
-  NUMSTAT=$(git -C "$WORK/src" diff HEAD --numstat)
+  IGNORED_NONPIO=$(git -C "$WORK/src" status --porcelain --ignored | grep '^!!' | grep -v '^!! \.pio/' || true)
+  CFG_SHA256=$(sha256sum "$CFG" | cut -d' ' -f1)
   if [ "$PORCELAIN" = " M Marlin/Configuration.h" ] \
-     && [ "$NUMSTAT" = $'2\t2\tMarlin/Configuration.h' ] \
-     && grep -qF 'GoatTech build of Marlin' "$CFG" \
-     && grep -qF 'GoatTech Ender-3 V3 SE' "$CFG" \
-     && ! grep -qF "$AUTHOR_OLD" "$CFG" \
-     && ! grep -qF "$NAME_OLD" "$CFG"; then
-    echo "Reusing staged upstream tree at $COMMIT (worktree verified: branding diff only)"
+     && [ "$CFG_SHA256" = "$EXPECTED_CFG_SHA256" ] \
+     && [ -z "$IGNORED_NONPIO" ]; then
+    echo "Reusing staged upstream tree at $COMMIT (worktree verified: exact pinned source + branding patch)"
   else
     echo "Staged tree differs from the pinned source beyond the branding diff; re-staging clean"
     rm -rf "$WORK"
