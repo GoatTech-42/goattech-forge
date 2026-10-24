@@ -1,0 +1,460 @@
+diff --git a/Marlin/Configuration_adv.h b/Marlin/Configuration_adv.h
+index f31e386..6db6358 100644
+--- a/Marlin/Configuration_adv.h
++++ b/Marlin/Configuration_adv.h
+@@ -1305,8 +1305,9 @@
+ //#define INPUT_SHAPING_X
+ //#define INPUT_SHAPING_Y
+ //#define INPUT_SHAPING_Z
++// GoatTech: define outside the classic-shaping block - this menu drives FT-Motion, not INPUT_SHAPING_X/Y/Z
++#define DWIN_INPUT_SHAPING_MENU           // Enable LCD Menu to Configure Input Shaping parameters
+ #if ANY(INPUT_SHAPING_X, INPUT_SHAPING_Y, INPUT_SHAPING_Z)
+-  // #define DWIN_INPUT_SHAPING_MENU        // Enable LCD Menu to Configure Input Shaping parameters
+   #if ENABLED(INPUT_SHAPING_X)
+     #define SHAPING_FREQ_X  42.0        // (Hz) The default dominant resonant frequency on the X axis.
+     #define SHAPING_ZETA_X   0.15       // Damping ratio of the X axis (range: 0.0 = no damping to 1.0 = critical damping).
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.cpp b/Marlin/src/lcd/dwin/creality/dwin.cpp
+index 4a888a8..2a0905d 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -49,6 +49,10 @@ lin 3D Printer Firmware
+ #include "../../../core/macros.h"
+ #include "../../../gcode/queue.h"
+ #include "../../../module/temperature.h"
++
++#if ENABLED(DWIN_INPUT_SHAPING_MENU) && ENABLED(FT_MOTION)
++  #include "../../../module/ft_motion.h"
++#endif
+ #include "../../../module/printcounter.h"
+ #include "../../../module/motion.h"
+ #include "../../../module/planner.h"
+@@ -216,7 +220,7 @@ typedef struct
+ 
+ select_t select_page{0}, select_file{0}, select_print{0}, select_prepare{0}, select_control{0}, select_axis{0}, select_temp{0}, select_motion{0}, select_tune{0}, select_advset{0}, select_PLA{0}, select_ABS{0}, select_TPU{0},  select_PETG{0},  
+         select_speed{0}, select_acc{0}, select_jerk{0}, select_step{0}, 
+-        select_input_shaping{0}, 
++        select_input_shaping{0}, select_shaper{0},
+         select_skew{0}, 
+         select_cextr{0}, 
+         select_display{0}, 
+@@ -1510,6 +1514,16 @@ inline bool Apply_Encoder(const ENCODER_DiffState &encoder_diffState, T &valref)
+   #define INPUT_SHAPING_CASE_YFREQ (INPUT_SHAPING_CASE_XFREQ + 1)
+   #define INPUT_SHAPING_CASE_XZETA (INPUT_SHAPING_CASE_YFREQ + 1)
+   #define INPUT_SHAPING_CASE_YZETA (INPUT_SHAPING_CASE_XZETA + 1)
++#define INPUT_SHAPING_CASE_SHAPER (INPUT_SHAPING_CASE_YZETA + 1)
++#define INPUT_SHAPING_CASE_TOTAL INPUT_SHAPING_CASE_SHAPER
++#define SHAPERSEL_CASE_X 1
++#define SHAPERSEL_CASE_Y 2
++  // GoatTech: forward declarations (definitions live further down, callers earlier)
++  void Draw_InputShaping_Menu();
++  void Draw_ShaperSel_Menu();
++  void HMI_InputShaping();
++  void HMI_InputShaping_Values();
++  void HMI_ShaperSel();
+ #endif
+ // #define LINEAR_ADV_KFACTOR 1
+ 
+@@ -4802,6 +4816,106 @@ void HMI_MaxJerkXYZE()
+ #endif // Has classic jerk
+ 
+ #if ENABLED(DWIN_INPUT_SHAPING_MENU)
++  // GoatTech: shaper-type names for the DWIN input-shaping menu (mirrors the MarlinUI FT-Motion menu naming)
++  FSTR_P get_ft_shaper_name(const ftMotionShaper_t s)
++  {
++    switch (s)
++    {
++    default:
++    case ftMotionShaper_NONE: return GET_TEXT_F(MSG_LCD_OFF);
++#if ENABLED(FTM_SHAPER_ZV)
++    case ftMotionShaper_ZV: return GET_TEXT_F(MSG_FTM_ZV);
++#endif
++#if ENABLED(FTM_SHAPER_ZVD)
++    case ftMotionShaper_ZVD: return GET_TEXT_F(MSG_FTM_ZVD);
++#endif
++#if ENABLED(FTM_SHAPER_ZVDD)
++    case ftMotionShaper_ZVDD: return GET_TEXT_F(MSG_FTM_ZVDD);
++#endif
++#if ENABLED(FTM_SHAPER_ZVDDD)
++    case ftMotionShaper_ZVDDD: return GET_TEXT_F(MSG_FTM_ZVDDD);
++#endif
++#if ENABLED(FTM_SHAPER_EI)
++    case ftMotionShaper_EI: return GET_TEXT_F(MSG_FTM_EI);
++#endif
++#if ENABLED(FTM_SHAPER_2HEI)
++    case ftMotionShaper_2HEI: return GET_TEXT_F(MSG_FTM_2HEI);
++#endif
++#if ENABLED(FTM_SHAPER_3HEI)
++    case ftMotionShaper_3HEI: return GET_TEXT_F(MSG_FTM_3HEI);
++#endif
++#if ENABLED(FTM_SHAPER_MZV)
++    case ftMotionShaper_MZV: return GET_TEXT_F(MSG_FTM_MZV);
++#endif
++    }
++  }
++
++  // Cycle to the next compiled-in shaper type (wraps around to NONE)
++  ftMotionShaper_t next_ft_shaper(const ftMotionShaper_t s)
++  {
++    for (uint8_t i = 1; i <= 8; i++)
++    {
++      const ftMotionShaper_t c = (ftMotionShaper_t)((s + i) % 9);
++      switch (c)
++      {
++      case ftMotionShaper_NONE: return c;
++#if ENABLED(FTM_SHAPER_ZV)
++      case ftMotionShaper_ZV: return c;
++#endif
++#if ENABLED(FTM_SHAPER_ZVD)
++      case ftMotionShaper_ZVD: return c;
++#endif
++#if ENABLED(FTM_SHAPER_ZVDD)
++      case ftMotionShaper_ZVDD: return c;
++#endif
++#if ENABLED(FTM_SHAPER_ZVDDD)
++      case ftMotionShaper_ZVDDD: return c;
++#endif
++#if ENABLED(FTM_SHAPER_EI)
++      case ftMotionShaper_EI: return c;
++#endif
++#if ENABLED(FTM_SHAPER_2HEI)
++      case ftMotionShaper_2HEI: return c;
++#endif
++#if ENABLED(FTM_SHAPER_3HEI)
++      case ftMotionShaper_3HEI: return c;
++#endif
++#if ENABLED(FTM_SHAPER_MZV)
++      case ftMotionShaper_MZV: return c;
++#endif
++      default: break;
++      }
++    }
++    return ftMotionShaper_NONE;
++  }
++
++  void Draw_ShaperValue(const uint8_t line, const ftMotionShaper_t s)
++  {
++    DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, VALUERANGE_X, MBASE(line) + 3, F("        "));
++    DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, VALUERANGE_X, MBASE(line) + 3, get_ft_shaper_name(s));
++  }
++
++  // GoatTech: shaping edits must never run while motion is queued or a print is active/paused -
++  // every FTM setter calls planner.synchronize(), which would freeze the UI until motion drains.
++  bool ftm_edits_locked()
++  {
++    return marlin.printingIsActive() || marlin.printingIsPaused() || planner.has_blocks_queued();
++  }
++
++  // Notice line one row below the last menu item (MBASE(MROWS + 1) is free in these menus)
++  void Draw_FtmNotice(const __FlashStringHelper *msg)
++  {
++    DWIN_Draw_String(false, true, font8x16, Color_Red, Color_Bg_Black, LBLX, MBASE(6) + 3, F("                                "));
++    DWIN_Draw_String(false, true, font8x16, Color_Red, Color_Bg_Black, LBLX, MBASE(6) + 3, msg);
++  }
++  void Clear_FtmNotice()
++  {
++    DWIN_Draw_String(false, true, font8x16, Color_Red, Color_Bg_Black, LBLX, MBASE(6) + 3, F("                                "));
++  }
++
++  // Dirty flag for save-on-exit: one EEPROM write per menu visit, never per click
++  static bool ftm_menu_dirty = false;
++
+   void HMI_InputShaping_Values()
+   {
+     ENCODER_DiffState encoder_diffState = Encoder_ReceiveAnalyze();
+@@ -4815,66 +4929,140 @@ void HMI_MaxJerkXYZE()
+       {
+         checkkey = InputShaping;
+         EncoderRate.enabled = false;
+-        NOLESS(HMI_ValueStruct.InputShaping_scaled, 0.0f);
+-        stepper.set_shaping_frequency(X_AXIS, HMI_ValueStruct.InputShaping_scaled / 100);
++        LIMIT(HMI_ValueStruct.InputShaping_scaled, FTM_MIN_SHAPE_FREQ * 100.0f, (FTM_FS / 2) * 100.0f);
++        if (!ftm_edits_locked()) { ftMotion.cfg.setBaseFreq(X_AXIS, HMI_ValueStruct.InputShaping_scaled / 100); ftm_menu_dirty = true; }
++        else Draw_FtmNotice(F("Locked - value NOT applied"));
+ 
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
+         return;
+       }
+ 
+-      NOLESS(HMI_ValueStruct.InputShaping_scaled, 0.0f);
+-      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
++      LIMIT(HMI_ValueStruct.InputShaping_scaled, FTM_MIN_SHAPE_FREQ * 100.0f, (FTM_FS / 2) * 100.0f);
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, HMI_ValueStruct.InputShaping_scaled);
+       break;
+     case InputShaping_YFreq:
+       if (Apply_Encoder(encoder_diffState, HMI_ValueStruct.InputShaping_scaled))
+       {
+         checkkey = InputShaping;
+         EncoderRate.enabled = false;
+-        NOLESS(HMI_ValueStruct.InputShaping_scaled, 0.0f);
+-        stepper.set_shaping_frequency(Y_AXIS, HMI_ValueStruct.InputShaping_scaled / 100);
++        LIMIT(HMI_ValueStruct.InputShaping_scaled, FTM_MIN_SHAPE_FREQ * 100.0f, (FTM_FS / 2) * 100.0f);
++        if (!ftm_edits_locked()) { ftMotion.cfg.setBaseFreq(Y_AXIS, HMI_ValueStruct.InputShaping_scaled / 100); ftm_menu_dirty = true; }
++        else Draw_FtmNotice(F("Locked - value NOT applied"));
+ 
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
+         return;
+       }
+ 
+-      NOLESS(HMI_ValueStruct.InputShaping_scaled, 0.0f);
+-      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
++      LIMIT(HMI_ValueStruct.InputShaping_scaled, FTM_MIN_SHAPE_FREQ * 100.0f, (FTM_FS / 2) * 100.0f);
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, HMI_ValueStruct.InputShaping_scaled);
+       break;
+     case InputShaping_XZeta:
+       if (Apply_Encoder(encoder_diffState, HMI_ValueStruct.InputShaping_scaled))
+       {
+         checkkey = InputShaping;
+         EncoderRate.enabled = false;
+-        LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, 100.0f);
+-        stepper.set_shaping_damping_ratio(X_AXIS, HMI_ValueStruct.InputShaping_scaled / 100);
++        LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, ftm_max_dampening * 100.0f);
++        if (!ftm_edits_locked()) { ftMotion.cfg.setZeta(X_AXIS, HMI_ValueStruct.InputShaping_scaled / 100); ftm_menu_dirty = true; }
++        else Draw_FtmNotice(F("Locked - value NOT applied"));
+ 
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
+         return;
+       }
+-      LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, 100.0f);
++      LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, ftm_max_dampening * 100.0f);
+ 
+-      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, HMI_ValueStruct.InputShaping_scaled);
+       break;
+     case InputShaping_YZeta:
+       if (Apply_Encoder(encoder_diffState, HMI_ValueStruct.InputShaping_scaled))
+       {
+         checkkey = InputShaping;
+         EncoderRate.enabled = false;
+-        LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, 100.0f);
+-        stepper.set_shaping_damping_ratio(Y_AXIS, HMI_ValueStruct.InputShaping_scaled / 100);
++        LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, ftm_max_dampening * 100.0f);
++        if (!ftm_edits_locked()) { ftMotion.cfg.setZeta(Y_AXIS, HMI_ValueStruct.InputShaping_scaled / 100); ftm_menu_dirty = true; }
++        else Draw_FtmNotice(F("Locked - value NOT applied"));
+ 
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
+         return;
+       }
+-      LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, 100.0f);
++      LIMIT(HMI_ValueStruct.InputShaping_scaled, 0.0f, ftm_max_dampening * 100.0f);
+ 
+-      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, _MAX(HMI_ValueStruct.InputShaping_scaled, 0.0));
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, HMI_ValueStruct.InputShaping_scaled);
+       break;
+     }
+ 
+     DWIN_UpdateLCD();
+ }
+-#endif // ENABLED(INPUT_SHAPING_X) && ENABLED(INPUT_SHAPING_Y)
++
++  void Draw_ShaperSel_Menu()
++  {
++    Clear_Main_Window();
++    HMI_flag.Refresh_bottom_flag = true;
++
++    Draw_Title(GET_TEXT_F(MSG_SHAPING_TYPE));
++    DWIN_Draw_Label(MBASE(SHAPERSEL_CASE_X), GET_TEXT_F(MSG_SHAPING_A_SHAPER));
++    DWIN_Draw_Label(MBASE(SHAPERSEL_CASE_Y), GET_TEXT_F(MSG_SHAPING_B_SHAPER));
++
++    Draw_Back_First();
++
++    Draw_Menu_Line(SHAPERSEL_CASE_X, ICON_MaxAccX);
++    Draw_Menu_Line(SHAPERSEL_CASE_Y, ICON_MaxAccY);
++    Draw_ShaperValue(SHAPERSEL_CASE_X, ftMotion.cfg.shaper[X_AXIS]);
++    Draw_ShaperValue(SHAPERSEL_CASE_Y, ftMotion.cfg.shaper[Y_AXIS]);
++
++    if (ftm_edits_locked())
++      Draw_FtmNotice(F("View only while printing"));
++    else
++      Clear_FtmNotice();
++  }
++
++  void HMI_ShaperSel()
++  {
++    ENCODER_DiffState encoder_diffState = get_encoder_state();
++    if (encoder_diffState == ENCODER_DIFF_NO)
++      return;
++
++    if (encoder_diffState == ENCODER_DIFF_CW)
++    {
++      if (select_shaper.inc(1 + SHAPERSEL_CASE_Y))
++        Move_Highlight(1, select_shaper.now);
++    }
++    else if (encoder_diffState == ENCODER_DIFF_CCW)
++    {
++      if (select_shaper.dec())
++        Move_Highlight(-1, select_shaper.now);
++    }
++    else if (encoder_diffState == ENCODER_DIFF_ENTER)
++    {
++      switch (select_shaper.now)
++      {
++      case 0: // Back
++        checkkey = InputShaping;
++        select_input_shaping.now = INPUT_SHAPING_CASE_SHAPER;
++        Draw_InputShaping_Menu();
++        break;
++      case SHAPERSEL_CASE_X:
++      {
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
++        const ftMotionShaper_t ns = next_ft_shaper(ftMotion.cfg.shaper[X_AXIS]);
++        ftMotion.cfg.setShaper(X_AXIS, ns);
++        ftm_menu_dirty = true;
++        Draw_ShaperValue(SHAPERSEL_CASE_X, ns);
++        break;
++      }
++      case SHAPERSEL_CASE_Y:
++      {
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
++        const ftMotionShaper_t ns = next_ft_shaper(ftMotion.cfg.shaper[Y_AXIS]);
++        ftMotion.cfg.setShaper(Y_AXIS, ns);
++        ftm_menu_dirty = true;
++        Draw_ShaperValue(SHAPERSEL_CASE_Y, ns);
++        break;
++      }
++      }
++    }
++    DWIN_UpdateLCD();
++  }
++#endif // ENABLED(DWIN_INPUT_SHAPING_MENU)
+ 
+ ////
+ // void HMI_LinearAdv_KFactor()
+@@ -9652,6 +9840,7 @@ void Draw_Steps_Menu()
+     DWIN_Draw_Label(MBASE(INPUT_SHAPING_CASE_YFREQ), GET_TEXT_F(MSG_SHAPING_B_FREQ));
+     DWIN_Draw_Label(MBASE(INPUT_SHAPING_CASE_XZETA), GET_TEXT_F(MSG_SHAPING_A_ZETA));
+     DWIN_Draw_Label(MBASE(INPUT_SHAPING_CASE_YZETA), GET_TEXT_F(MSG_SHAPING_B_ZETA));
++    DWIN_Draw_Label(MBASE(INPUT_SHAPING_CASE_SHAPER), GET_TEXT_F(MSG_SHAPING_TYPE));
+ 
+     Draw_Back_First();
+ 
+@@ -9659,16 +9848,24 @@ void Draw_Steps_Menu()
+     Draw_Menu_Line(INPUT_SHAPING_CASE_YFREQ, ICON_MaxAccY);
+     Draw_Menu_Line(INPUT_SHAPING_CASE_XZETA, ICON_MaxSpeedX);
+     Draw_Menu_Line(INPUT_SHAPING_CASE_YZETA, ICON_MaxSpeedY);
++    Draw_Menu_Line(INPUT_SHAPING_CASE_SHAPER, ICON_MaxSpeedX);
++
++    if (ftm_edits_locked())
++      Draw_FtmNotice(F("View only while printing"));
++    else if (!ftMotion.cfg.active)
++      Draw_FtmNotice(F("FT Motion OFF - tuning has no effect"));
++    else
++      Clear_FtmNotice();
+   #if ENABLED(DWIN_CREALITY_480_LCD)
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, stepper.get_shaping_frequency(X_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, stepper.get_shaping_frequency(Y_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, stepper.get_shaping_damping_ratio(X_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, stepper.get_shaping_damping_ratio(Y_AXIS) * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, ftMotion.cfg.baseFreq[X_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, ftMotion.cfg.baseFreq[Y_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, ftMotion.cfg.zeta[X_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, ftMotion.cfg.zeta[Y_AXIS] * 100);
+   #elif ENABLED(DWIN_CREALITY_320_LCD)
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, stepper.get_shaping_frequency(X_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, stepper.get_shaping_frequency(Y_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, stepper.get_shaping_damping_ratio(X_AXIS) * 100);
+-    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, stepper.get_shaping_damping_ratio(Y_AXIS) * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, ftMotion.cfg.baseFreq[X_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, ftMotion.cfg.baseFreq[Y_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, ftMotion.cfg.zeta[X_AXIS] * 100);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, ftMotion.cfg.zeta[Y_AXIS] * 100);
+   #endif
+   }
+ #endif
+@@ -10959,7 +11156,7 @@ void HMI_MaxAcceleration()
+     // Avoid flicker by updating only the previous menu
+     if (encoder_diffState == ENCODER_DIFF_CW)
+     {
+-      if (select_input_shaping.inc(1 + 3 + ENABLED(HAS_HOTEND)))
++      if (select_input_shaping.inc(1 + INPUT_SHAPING_CASE_TOTAL))
+         Move_Highlight(1, select_input_shaping.now);
+     }
+     else if (encoder_diffState == ENCODER_DIFF_CCW)
+@@ -10975,31 +11172,48 @@ void HMI_MaxAcceleration()
+         checkkey = MotionMenu;
+         select_motion.now = MOTION_CASE_INPUT_SHAPING;
+         Draw_Motion_Menu();
++        if (ftm_menu_dirty)
++        {
++          ftm_menu_dirty = false;
++          if (settings.save())
++            Draw_FtmNotice(F("Shaping settings saved"));
++          else
++            Draw_FtmNotice(F("EEPROM SAVE FAILED"));
++        }
+         break;
+       case INPUT_SHAPING_CASE_XFREQ:
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
+         checkkey = InputShaping_XFreq;
+-        HMI_ValueStruct.InputShaping_scaled = stepper.get_shaping_frequency(X_AXIS) * 100;
++        HMI_ValueStruct.InputShaping_scaled = ftMotion.cfg.baseFreq[X_AXIS] * 100;
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XFREQ) + 3, HMI_ValueStruct.InputShaping_scaled);
+         EncoderRate.enabled = true;
+         break;
+       case INPUT_SHAPING_CASE_YFREQ:
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
+         checkkey = InputShaping_YFreq;
+-        HMI_ValueStruct.InputShaping_scaled = stepper.get_shaping_frequency(Y_AXIS) * 100;
++        HMI_ValueStruct.InputShaping_scaled = ftMotion.cfg.baseFreq[Y_AXIS] * 100;
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YFREQ) + 3, HMI_ValueStruct.InputShaping_scaled);
+         EncoderRate.enabled = true;
+         break;
+       case INPUT_SHAPING_CASE_XZETA:
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
+         checkkey = InputShaping_XZeta;
+-        HMI_ValueStruct.InputShaping_scaled = stepper.get_shaping_damping_ratio(X_AXIS) * 100;
++        HMI_ValueStruct.InputShaping_scaled = ftMotion.cfg.zeta[X_AXIS] * 100;
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_XZETA) + 3, HMI_ValueStruct.InputShaping_scaled);
+         EncoderRate.enabled = true;
+         break;
+       case INPUT_SHAPING_CASE_YZETA:
++        if (ftm_edits_locked()) { Draw_FtmNotice(F("View only while printing")); break; }
+         checkkey = InputShaping_YZeta;
+-        HMI_ValueStruct.InputShaping_scaled = stepper.get_shaping_damping_ratio(Y_AXIS) * 100;
++        HMI_ValueStruct.InputShaping_scaled = ftMotion.cfg.zeta[Y_AXIS] * 100;
+         DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(INPUT_SHAPING_CASE_YZETA) + 3, HMI_ValueStruct.InputShaping_scaled);
+         EncoderRate.enabled = true;
+         break;
++      case INPUT_SHAPING_CASE_SHAPER:
++        checkkey = InputShaping_ShaperSel;
++        select_shaper.reset();
++        Draw_ShaperSel_Menu();
++        break;
+       }
+     }
+     DWIN_UpdateLCD();
+@@ -12476,6 +12690,9 @@ void DWIN_HandleScreen()
+   case InputShaping:
+     HMI_InputShaping();
+     break;
++  case InputShaping_ShaperSel:
++    HMI_ShaperSel();
++    break;
+ #endif    
+     // case LinearAdv:
+     //   HMI_LinearAdv();
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.h b/Marlin/src/lcd/dwin/creality/dwin.h
+index 8096280..8dc10ef 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.h
++++ b/Marlin/src/lcd/dwin/creality/dwin.h
+@@ -120,6 +120,7 @@ enum processID : uint8_t {
+   InputShaping_XZeta,
+   InputShaping_YFreq,
+   InputShaping_YZeta,
++  InputShaping_ShaperSel,
+ #endif  
+ #if ENABLED(DWIN_SKEW_MENU)  
+   SkewCorrection,
+diff --git a/Marlin/src/lcd/language/language_en.h b/Marlin/src/lcd/language/language_en.h
+index e45388e..3d80c9e 100644
+--- a/Marlin/src/lcd/language/language_en.h
++++ b/Marlin/src/lcd/language/language_en.h
+@@ -844,6 +844,9 @@ namespace LanguageNarrow_en {
+   LSTR MSG_SHAPING_A_ZETA                 = STR_A _UxGT(" damping");
+   LSTR MSG_SHAPING_B_ZETA                 = STR_B _UxGT(" damping");
+   LSTR MSG_SHAPING_C_ZETA                 = STR_C _UxGT(" damping");
++  LSTR MSG_SHAPING_TYPE                   = _UxGT("Shaper type");
++  LSTR MSG_SHAPING_A_SHAPER               = STR_A _UxGT(" shaper");
++  LSTR MSG_SHAPING_B_SHAPER               = STR_B _UxGT(" shaper");
+   LSTR MSG_FTM_TRAPEZOIDAL                = _UxGT("Trapezoidal");
+   LSTR MSG_FTM_POLY5                      = _UxGT("5th Order");
+   LSTR MSG_FTM_POLY6                      = _UxGT("6th Order");
