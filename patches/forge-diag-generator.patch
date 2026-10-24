@@ -1,0 +1,385 @@
+diff --git a/Marlin/src/e3v3se/forge_diag.cpp b/Marlin/src/e3v3se/forge_diag.cpp
+new file mode 100644
+index 0000000..395b21e
+--- /dev/null
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -0,0 +1,339 @@
++/**
++ * GoatTech Forge diagnostics - phase-1 plate generator.
++ *
++ * Emits FORGDIA1.TMP from fixed geometry tables + caller-confirmed parameters,
++ * then publishes it as FORGDIA1.G. The start guard (cardreader.cpp) refuses
++ * the temp name always and the job name unless it ends with the sentinel.
++ *
++ * Safety contract:
++ *  - Generation is REFUSED while any print is active, paused, a file is open,
++ *    or the planner has queued blocks (openFileWrite would ABORT an active
++ *    SD job, not gate it - so this function gates before calling it).
++ *  - Every write is length-checked; any short write or rename failure closes
++ *    and removes the temp file (fail-closed; the guard refuses anything that
++ *    slips through anyway).
++ *  - The sentinel ";FORGE_DIAG_COMPLETE" is emitted as the exact final line,
++ *    inside the guard's 96-byte tail window, and is re-read from the temp
++ *    file and verified as the exact final line before the rename publish.
++ *  - Inter-zone travel is a bounded transition: retract, lift to SAFE_Z
++ *    (clear of the tallest printed feature), travel, then descend onto empty
++ *    bed - Z never descends at a travel start above printed geometry.
++ */
++
++#include "forge_diag.h"
++
++#include "../sd/cardreader.h"
++#include "../MarlinCore.h"
++#include "../module/planner.h"
++#include "../module/temperature.h"
++#include "../lcd/marlinui.h"
++
++#include <stdarg.h>
++#include <stdlib.h>
++#include <string.h>
++
++namespace forge_diag {
++
++// ---------------- emission core (single path for counting and writing) ----
++
++static bool count_only;
++static bool write_failed;
++static uint32_t byte_count;
++
++static void emit(const char * const s) {
++  const uint16_t n = strlen(s);
++  if (count_only) { byte_count += n; return; }
++  if (!write_failed && card.write((void*)s, n) != (int16_t)n) write_failed = true;
++}
++
++static void emitf(const char *fmt, ...) {
++  char buf[96];
++  va_list ap; va_start(ap, fmt);
++  vsnprintf(buf, sizeof(buf), fmt, ap);
++  va_end(ap);
++  buf[sizeof(buf) - 1] = '\0';
++  emit(buf);
++}
++
++// Float via dtostrf (newlib-nano on these targets may lack %f).
++static void emit_ff(const char *prefix, const float v, const char *suffix) {
++  char num[16];
++  dtostrf(v, 0, 2, num);
++  char buf[96];
++  snprintf(buf, sizeof(buf), "%s%s%s", prefix, num, suffix);
++  buf[sizeof(buf) - 1] = '\0';
++  emit(buf);
++}
++
++// ---------------- geometry (plate design v3, reviewer-passed direction) ----
++
++static const float TOWERS[4][2] = { {60,60}, {60,120}, {120,60}, {120,120} };
++static const float TOWER_HEIGHT = 35.0f, TOWER_SIDE = 10.0f;
++static const float BOX_CX = 170.0f, BOX_CY = 60.0f, BOX_SIDE = 30.0f, BOX_HEIGHT = 15.0f;
++static const float PATCH_CX = 170.0f, PATCH_CY = 140.0f, PATCH_SIDE = 20.0f, PATCH_HEIGHT = 3.0f;
++static const float LADDER_X0 = 20.0f, LADDER_LEN = 40.0f, LADDER_Y0 = 170.0f;
++static const float LADDER_SPEEDS[3] = { 40.0f, 80.0f, 120.0f };
++static const float RETRACT_MM = 0.8f, RETRACT_F = 2400.0f;
++static const float PRIME_E = 12.0f;
++
++// ---------------- derived parameters (reviewer refinement #1) --------------
++
++struct Derived {
++  float nozzle, layer_h, line_w, e_per_mm, retract;
++  int tower_layers, box_layers, patch_layers;
++  uint16_t temp_nozzle, temp_bed;
++};
++
++static Derived derive(const PlateParams &p) {
++  Derived d;
++  d.nozzle  = constrain(p.nozzle_x100, 20, 80) / 100.0f;
++  d.layer_h = constrain(d.nozzle * 0.5f, 0.08f, 0.32f); // 0.20 at a 0.40 nozzle
++  d.line_w  = d.nozzle;
++  d.e_per_mm = (d.line_w * d.layer_h) / (3.14159265f * 0.875f * 0.875f); // 1.75mm filament (spec-labeled)
++  d.retract  = RETRACT_MM;
++  d.tower_layers = (int)(TOWER_HEIGHT / d.layer_h + 0.5f);
++  d.box_layers   = (int)(BOX_HEIGHT   / d.layer_h + 0.5f);
++  d.patch_layers = (int)(PATCH_HEIGHT / d.layer_h + 0.5f);
++  d.temp_nozzle  = constrain(p.temp_nozzle, 170, thermalManager.hotend_max_target(0));
++  d.temp_bed     = constrain(p.temp_bed, 0, BED_MAXTEMP);
++  return d;
++}
++
++// ---------------- move helpers --------------------------------------------
++
++static double g_e;            // absolute E accumulator (M82 like stock files)
++static bool g_retracted;      // tracked so transitions never double-retract
++static const float SAFE_Z = 37.0f; // clears the tallest feature (35mm towers) + 2mm
++
++static void move_xy_e(const float x, const float y, const float len, const float f, const Derived &d) {
++  g_e += len * d.e_per_mm;
++  char fx[14], fy[14], fe[16], ff[14];
++  dtostrf(x, 0, 2, fx); dtostrf(y, 0, 2, fy); dtostrf((float)g_e, 0, 3, fe); dtostrf(f, 0, 0, ff);
++  emitf("G1 X%s Y%s E%s F%s\n", fx, fy, fe, ff);
++}
++
++static void move_xy(const float x, const float y, const float f) {
++  char fx[14], fy[14], ff[14];
++  dtostrf(x, 0, 2, fx); dtostrf(y, 0, 2, fy); dtostrf(f, 0, 0, ff);
++  emitf("G1 X%s Y%s F%s\n", fx, fy, ff);
++}
++
++static void move_z(const float z, const float f) {
++  char fz[14], fs[14];
++  dtostrf(z, 0, 2, fz); dtostrf(f, 0, 0, fs);
++  emitf("G1 Z%s F%s\n", fz, fs);
++}
++
++// State-tracked (de)retract: no-ops when already in the requested state, so
++// chained transitions can never double-retract (prime ends retracted; the
++// first tower's retract must be a no-op, not a net -1.6mm).
++static void set_retract(const bool want, const Derived &d) {
++  if (want == g_retracted) return;
++  g_e += want ? -d.retract : d.retract;
++  g_retracted = want;
++  char fe[16];
++  dtostrf((float)g_e, 0, 3, fe);
++  emitf("G1 E%s F2400\n", fe);
++}
++
++// Bounded inter-zone transition (reviewer must-fix): retract, lift clear of
++// the tallest printed feature, XY travel at safe height, THEN descend onto
++// the (empty) destination. Never descends at the travel start - the old code
++// plunged Z through printed geometry at every zone boundary.
++static void transition_to(const float x, const float y, const float z_dest, const Derived &d) {
++  set_retract(true, d);
++  move_z(SAFE_Z, 600);
++  move_xy(x, y, 2400);
++  move_z(z_dest, 600);
++}
++
++// ---------------- plate emission ------------------------------------------
++
++static void emit_plate(const PlateParams &p) {
++  const Derived d = derive(p);
++
++  // 1. Partial-warning header (line 1) + provenance
++  emit("; FORGE DIAGNOSTIC PLATE - PARTIAL FILE. If this text is all you see, DO NOT PRINT - regenerate from the Forge menu.\n");
++  emit("; GoatTech Forge diagnostics, generated on-printer. Not a calibration of your machine.\n");
++  {
++    char nl[14], lw[14];
++    dtostrf(d.layer_h, 0, 2, nl); dtostrf(d.line_w, 0, 2, lw);
++    emitf("; nozzle_x100=%u layer=%s line_w=%s\n", (unsigned)(d.nozzle * 100 + 0.5f), nl, lw);
++  }
++  emitf("; temps nozzle=%u bed=%u (confirmed on the review screen)\n", (unsigned)d.temp_nozzle, (unsigned)d.temp_bed);
++  emit_ff("; E-per-mm=", d.e_per_mm, " (filament 1.75mm spec-labeled, absolute E / M82)\n");
++  {
++    char c0[16], c1[16], c2[16];
++    dtostrf(thermalManager.degHotend(0), 0, 1, c0);
++    dtostrf(thermalManager.degBed(), 0, 1, c1);
++    emitf("; temps at generation: nozzle=%s bed=%s C\n", c0, c1);
++  }
++  emit("; Zone C computed flows (speed x layer x width, no capacity claim; under-extrusion at a step is a DATA POINT):\n");
++  for (uint8_t i = 0; i < 3; i++) {
++    char fs[14], fv[14];
++    dtostrf(LADDER_SPEEDS[i], 0, 0, fs);
++    dtostrf(LADDER_SPEEDS[i] * d.layer_h * d.line_w, 0, 2, fv);
++    emitf(";   step %s mm/s -> %s mm3/s\n", fs, fv);
++  }
++  emit("; accel check: DEFAULT_ACCELERATION 3000 mm/s2, 40mm segments reach 120mm/s (v=sqrt(2*a*L) needs ~2.4mm)\n");
++
++  // 2. Start block (G28 enables leveling with stored mesh: ENABLE_LEVELING_AFTER_G28)
++  emit("G90\nM82\nG28\n");
++  emitf("M140 S%u\nM104 S%u\nM190 S%u\nM109 S%u\n", d.temp_bed, d.temp_nozzle, d.temp_bed, d.temp_nozzle);
++  g_e = 0.0; g_retracted = false;
++  emit("G92 E0\n");
++  move_xy(20, 5, 3000);
++  move_xy_e(180, 5, 160.0f, 1200, d); // prime line along front edge
++  set_retract(true, d);
++  move_z(2.0f, 600);
++  emit("M400\n");
++
++  // 3. Zone A: layer-interleaved stringing spikes (4 towers crossed 3x per layer)
++  emit(";ZONE A - stringing spikes (4x 10x10x35, layer-interleaved, retract 0.8 @ F2400)\n");
++  for (int l = 0; l < d.tower_layers; l++) {
++    const float z = d.layer_h * (l + 1);
++    for (uint8_t t = 0; t < 4; t++) {
++      const float x0 = TOWERS[t][0] - TOWER_SIDE / 2, y0 = TOWERS[t][1] - TOWER_SIDE / 2;
++      set_retract(true, d);
++      move_z(z, 600);
++      move_xy(x0, y0, 2400);
++      set_retract(false, d);
++      move_xy_e(x0 + TOWER_SIDE, y0, TOWER_SIDE, 2400, d);
++      move_xy_e(x0 + TOWER_SIDE, y0 + TOWER_SIDE, TOWER_SIDE, 2400, d);
++      move_xy_e(x0, y0 + TOWER_SIDE, TOWER_SIDE, 2400, d);
++      move_xy_e(x0, y0, TOWER_SIDE, 2400, d);
++    }
++  }
++
++  // 4. Zone B: single-wall box + solid top patch
++  emit(";ZONE B - flow box 30x30x15 single wall + solid patch 20x20x3\n");
++  {
++    const float x0 = BOX_CX - BOX_SIDE / 2, y0 = BOX_CY - BOX_SIDE / 2;
++    transition_to(x0, y0, d.layer_h, d); // enter from zone A top corner, clear of towers
++    for (int l = 0; l < d.box_layers; l++) {
++      move_z(d.layer_h * (l + 1), 600);
++      set_retract(false, d);
++      move_xy_e(x0 + BOX_SIDE, y0, BOX_SIDE, 2400, d);
++      move_xy_e(x0 + BOX_SIDE, y0 + BOX_SIDE, BOX_SIDE, 2400, d);
++      move_xy_e(x0, y0 + BOX_SIDE, BOX_SIDE, 2400, d);
++      move_xy_e(x0, y0, BOX_SIDE, 2400, d);
++      set_retract(true, d);
++      move_xy(x0, y0, 2400);
++    }
++    const float px0 = PATCH_CX - PATCH_SIDE / 2, py0 = PATCH_CY - PATCH_SIDE / 2;
++    transition_to(px0, py0, d.layer_h, d); // enter clear of the 15mm box
++    set_retract(false, d);
++    for (int l = 0; l < d.patch_layers; l++) {
++      move_z(d.layer_h * (l + 1), 600);
++      const int lines = (int)(PATCH_SIDE / d.line_w);
++      for (int i = 0; i <= lines; i++) {
++        const float y = py0 + i * d.line_w;
++        if ((l + i) & 1) { move_xy(px0 + PATCH_SIDE, y, 2400); move_xy_e(px0, y, PATCH_SIDE, 2400, d); }
++        else             { move_xy(px0, y, 2400);              move_xy_e(px0 + PATCH_SIDE, y, PATCH_SIDE, 2400, d); }
++      }
++    }
++  }
++
++  // 5. Zone C: speed ladder, 3 identical wall segments (3 lines each) on bare bed
++  emit(";ZONE C - speed ladder 40/80/120 mm/s, 40mm segments, 3 lines each\n");
++  {
++    const float z = d.layer_h;
++    transition_to(LADDER_X0, LADDER_Y0, z, d); // enter clear of the 3mm patch
++    set_retract(false, d);
++    for (uint8_t i = 0; i < 3; i++) {
++      const float f = LADDER_SPEEDS[i] * 60.0f;
++      for (uint8_t ln = 0; ln < 3; ln++) {
++        const float y = LADDER_Y0 + i * 8.0f + ln * d.line_w;
++        move_z(z, 600);
++        move_xy(LADDER_X0, y, 2400);
++        move_xy_e(LADDER_X0 + LADDER_LEN, y, LADDER_LEN, f, d);
++      }
++    }
++  }
++
++  // 6. End block + sentinel as the exact final line (guard tail window)
++  emit("M400\nM104 S0\nM140 S0\nG91\nG1 E-2 F2400\nG90\n");
++  emit("G1 Z5 F600\nG1 X0 Y200 F3000\nM84\nM400\n");
++  emit(FORGE_DIAG_SENTINEL "\n");
++}
++
++// ---------------- public API -------------------------------------------------
++
++uint32_t estimate_plate_bytes(const PlateParams &p) {
++  count_only = true; byte_count = 0;
++  emit_plate(p);
++  return byte_count;
++}
++
++bool generate_plate(const PlateParams &p, const bool allow_overwrite) {
++  // Entry gate (also enforced at the menu): never let openFileWrite's
++  // abortFilePrintNow destroy an in-progress or paused job.
++  if (marlin.printingIsActive() || marlin.printingIsPaused() || card.isFileOpen() || planner.has_blocks_queued()) {
++    SERIAL_ECHOLNPGM("Forge: refusing to generate while a job is active or paused");
++    ui.set_status_P(PSTR("Forge: stop/finish the job first"));
++    return false;
++  }
++  if (!card.isMounted()) {
++    ui.set_status_P(PSTR("Forge: no SD card"));
++    return false;
++  }
++  if (card.fileExists(FORGE_DIAG_JOB_NAME) && !allow_overwrite) {
++    ui.set_status_P(PSTR("Forge: plate exists - confirm overwrite"));
++    return false;
++  }
++
++  card.openFileWrite(FORGE_DIAG_TEMP_NAME); // truncates any stale temp file
++  if (!card.isFileOpen()) {
++    SERIAL_ECHOLNPGM("Forge: could not open temp file for writing");
++    ui.set_status_P(PSTR("Forge: temp file open failed"));
++    return false;
++  }
++
++  count_only = false; write_failed = false;
++  ui.set_status_P(PSTR("Forge: generating plate..."));
++  emit_plate(p);
++  card.closefile(); // sync + close + re-enable emergency parser, every path below
++
++  if (write_failed) {
++    card.removeFile(FORGE_DIAG_TEMP_NAME);
++    SERIAL_ECHOLNPGM("Forge: SD write failed; temp file removed");
++    ui.set_status_P(PSTR("Forge: SD write failed"));
++    return false;
++  }
++
++  // Verify the temp file before publish: nonzero size AND the sentinel
++  // re-read as the exact final line (content check, not just existence).
++  MediaFile &dir = card.getWorkDir();
++  MediaFile f;
++  const char want_tail[] = FORGE_DIAG_SENTINEL "\n";
++  const uint16_t wlen = sizeof(want_tail) - 1;
++  char tail[sizeof(want_tail)];
++  bool verified = f.open(&dir, FORGE_DIAG_TEMP_NAME, O_READ) && f.fileSize() >= wlen
++               && f.seekSet(f.fileSize() - wlen)
++               && f.read(tail, wlen) == (int)wlen
++               && memcmp(tail, want_tail, wlen) == 0;
++  if (!verified) {
++    f.close();
++    card.removeFile(FORGE_DIAG_TEMP_NAME);
++    SERIAL_ECHOLNPGM("Forge: temp file verify failed; removed");
++    ui.set_status_P(PSTR("Forge: verify failed"));
++    return false;
++  }
++  if (card.fileExists(FORGE_DIAG_JOB_NAME)) card.removeFile(FORGE_DIAG_JOB_NAME); // overwrite confirmed upstream
++  if (!f.rename(&dir, FORGE_DIAG_JOB_NAME)) {
++    f.close();
++    card.removeFile(FORGE_DIAG_TEMP_NAME);
++    SERIAL_ECHOLNPGM("Forge: publish rename failed; temp removed");
++    ui.set_status_P(PSTR("Forge: publish failed"));
++    return false;
++  }
++  f.close();
++
++  SERIAL_ECHOPGM("Forge: plate generated, ");
++  SERIAL_ECHO(estimate_plate_bytes(p));
++  SERIAL_ECHOLNPGM(" bytes");
++  ui.set_status_P(PSTR("Forge: diagnostic plate ready"));
++  return true;
++}
++
++} // namespace forge_diag
+diff --git a/Marlin/src/e3v3se/forge_diag.h b/Marlin/src/e3v3se/forge_diag.h
+index 53a498f..065ac42 100644
+--- a/Marlin/src/e3v3se/forge_diag.h
++++ b/Marlin/src/e3v3se/forge_diag.h
+@@ -1,5 +1,5 @@
+ /**
+- * GoatTech Forge - diagnostics shared constants.
++ * GoatTech Forge - diagnostics shared constants and generator API.
+  *
+  * The reserved diagnostic job is generated by the Diagnostics menu as
+  * FORGDIA1.TMP and published by rename to FORGDIA1.G (see forge_diag.cpp).
+@@ -9,6 +9,28 @@
+  */
+ #pragma once
+ 
++#include <stdint.h>
++
+ #define FORGE_DIAG_JOB_NAME  "FORGDIA1.G"
+ #define FORGE_DIAG_TEMP_NAME "FORGDIA1.TMP"
+ #define FORGE_DIAG_SENTINEL  ";FORGE_DIAG_COMPLETE"
++
++namespace forge_diag {
++
++struct PlateParams {
++  uint16_t nozzle_x100;  // installed nozzle diameter x100 (40 = 0.40mm); review-screen parameter
++  uint16_t temp_nozzle;  // confirmed hotend temp, C
++  uint16_t temp_bed;     // confirmed bed temp, C
++};
++
++// Byte count of the plate that generate_plate would emit for these params
++// (runs the same emission path with a counting sink - no drift).
++uint32_t estimate_plate_bytes(const PlateParams &p);
++
++// Generate FORGDIA1.TMP and publish it as FORGDIA1.G. Refuses (returns
++// false) while any job is active or paused, a file is open, the planner has
++// queued blocks, the card is missing, or the job file exists without
++// allow_overwrite. Fail-closed on any SD error.
++bool generate_plate(const PlateParams &p, const bool allow_overwrite);
++
++} // namespace forge_diag
