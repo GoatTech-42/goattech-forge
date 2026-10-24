@@ -25,11 +25,14 @@ GOATTECH_VERSION="0.2.0"
 # whose bytes differ from this hash stops the build.
 FORGE_PATCH="patches/forge-dwin-input-shaping-menu.patch"
 EXPECTED_PATCH_SHA256="7e73818d9119f87655feaf5532c83770e2bece20f505396ff42eb3f1a1b0c576"
-# Full-content hashes of every file the patch touches, after applying the
-# pinned patch to the pinned upstream source. Identical for both boards
+# Patch 2: issue #74 SD-close guard (applied after the menu patch, same strict pin)
+FORGE_PATCH2="patches/forge-74-sdclose-guard.patch"
+EXPECTED_PATCH2_SHA256="99e96511b52520bce35d9ed6d72d54cc8918902cdfa5a67140c02a49d031801f"
+# Full-content hashes of every file the patches touch, after applying both
+# pinned patches to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="399bd715649bb8015d5ae36e7fe8c83a8a68dd98a431c577457fadac705a90a4"
-EXPECTED_DWINCPP_SHA256="9e344693dfd1897f6e36c2c96b01260ed7f8bba4317d9233b1eba1014d12c110"
+EXPECTED_DWINCPP_SHA256="ebe947f0cecd0f83915b9b6606786562ebd2c9723772b70d39bb2f9e590be4b0"
 EXPECTED_DWINH_SHA256="8b8bc96b843237a3c18830552b4fb5cd896c869dfe5b8feb5cae1efa86ddadad"
 EXPECTED_LANGEN_SHA256="e3c389755f03beceb4edc995ea071c32c022ddfb47681d2c2252c2102cb7be25"
 
@@ -138,6 +141,14 @@ if [ "$READY" -eq 0 ]; then
   git -C "$SRC" apply --check "$PATCH_FILE" || fail "Forge patch does not apply cleanly to the pinned source"
   git -C "$SRC" apply "$PATCH_FILE"
   echo "Applied Forge patch $FORGE_PATCH (sha256 $EXPECTED_PATCH_SHA256)"
+  PATCH_FILE2="$SCRIPT_DIR/$FORGE_PATCH2"
+  [ -f "$PATCH_FILE2" ] || fail "Forge patch 2 missing: $PATCH_FILE2"
+  ACTUAL_PATCH2_SHA256=$(sha256sum "$PATCH_FILE2" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH2_SHA256" = "$EXPECTED_PATCH2_SHA256" ] \
+    || fail "Forge patch 2 content mismatch (got $ACTUAL_PATCH2_SHA256); refusing to apply an unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE2" || fail "Forge patch 2 does not apply cleanly on top of the menu patch"
+  git -C "$SRC" apply "$PATCH_FILE2"
+  echo "Applied Forge patch $FORGE_PATCH2 (sha256 $EXPECTED_PATCH2_SHA256)"
 
   verify_worktree_files || fail "post-patch worktree content mismatch; refusing to build an unverified tree"
 fi
