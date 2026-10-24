@@ -29,8 +29,8 @@ exact upstream lines before patching and fails closed if upstream changes.
 
 ## Build
 
-    ./build.sh c13   # CR4NS200320C13, GD32F303RET6 (env STM32F103RET6_creality)
-    ./build.sh c14   # CR4NS200320C14, STM32F401RET6 (env STM32F401RE_creality)
+    bash build.sh c13   # CR4NS200320C13, GD32F303RET6 (env STM32F103RET6_creality)
+    bash build.sh c14   # CR4NS200320C14, STM32F401RET6 (env STM32F401RE_creality)
 
 Output: `dist/GoatTech-Ender3V3SE-<board>-v<version>.bin`, with a sha256
 printed at the end of the build. Both targets compile green at the pinned
