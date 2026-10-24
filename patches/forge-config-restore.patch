@@ -1,0 +1,22 @@
+--- a/Marlin/Configuration.h
++++ b/Marlin/Configuration.h
+@@ -1508,7 +1508,7 @@
+  *
+  * See https://github.com/synthetos/TinyG/wiki/Jerk-Controlled-Motion-Explained
+  */
+-//#define S_CURVE_ACCELERATION
++#define S_CURVE_ACCELERATION
+ #if ENABLED(S_CURVE_ACCELERATION)
+   // Define to use 4th instead of 6th order motion curve
+   //#define S_CURVE_FACTOR 0.25    // Initial and final acceleration factor, ideally 0.1 to 0.4.
+--- a/Marlin/Configuration_adv.h
++++ b/Marlin/Configuration_adv.h
+@@ -2525,7 +2525,7 @@
+  *
+  * See https://marlinfw.org/docs/features/lin_advance.html for full instructions.
+  */
+-//#define LIN_ADVANCE
++#define LIN_ADVANCE
+ 
+ #if ANY(LIN_ADVANCE, FT_MOTION)
+   #if ENABLED(DISTINCT_E_FACTORS)
