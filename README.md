@@ -7,8 +7,15 @@ on top, not just a rebrand.
 
 ## Status
 
-Research / base-import stage. **Nothing here is flash-ready yet.** Binaries will
-only ever be published per confirmed board revision and MCU.
+Docs and reproducible build pipeline live. **Nothing here is flash-ready yet.**
+Binaries will only ever be published per confirmed board revision and MCU, and
+compilation is not hardware validation.
+
+## Building
+
+`./build.sh c13` or `./build.sh c14` clones the pinned upstream port, applies the
+minimal GoatTech branding diff (verified against the exact upstream lines), and
+builds one binary for one board. See [docs/build.md](docs/build.md).
 
 ## Based on (with thanks)
 
@@ -23,6 +30,13 @@ only ever be published per confirmed board revision and MCU.
 - A guided first-print calibration walkthrough (e-steps, PID, Z-offset, shaper tuning)
 - Unified docs covering both mainboard revisions end to end
 - An on-screen input-shaping menu (upstream only exposes M493 gcode)
+
+## Docs
+
+- [docs/research.md](docs/research.md) - the grounded research behind the plan
+- [docs/build.md](docs/build.md) - reproducible build pipeline
+- [docs/calibration.md](docs/calibration.md) - first-print calibration walkthrough (reviewed)
+- [docs/architecture.md](docs/architecture.md) - branch strategy and change policy
 
 ## Safety rules
 
