@@ -7,9 +7,13 @@ on top, not just a rebrand.
 
 ## Status
 
-Docs and reproducible build pipeline live. **Nothing here is flash-ready yet.**
-Binaries will only ever be published per confirmed board revision and MCU, and
-compilation is not hardware validation.
+Reproducible build pipeline and the first GoatTech feature are integrated:
+`build.sh` applies the pinned input-shaping menu patch
+(`patches/forge-dwin-input-shaping-menu.patch`, verified by full-content hash,
+no bypass) before compiling. **Nothing here is flash-ready yet.** The menu is
+experimental: source-reviewed and compiled for both board targets, not
+validated on hardware. Binaries will only ever be published per confirmed
+board revision and MCU, and compilation is not hardware validation.
 
 ## Building
 
@@ -26,10 +30,10 @@ builds one binary for one board. See [docs/build.md](docs/build.md).
 
 ## What GoatTech adds
 
-- GoatTech boot screen and display skin for the stock TJC/DWIN screen
+- GoatTech boot screen and display skin for the stock TJC/DWIN screen - planned concept, no assets or code yet
 - A guided first-print calibration walkthrough (e-steps, PID, Z-offset, shaper tuning)
 - Unified docs covering both mainboard revisions end to end
-- An on-screen input-shaping menu (upstream only exposes M493 gcode)
+- An on-screen input-shaping menu (upstream only exposes M493 gcode) - implemented as a pinned patch; experimental, not hardware-tested
 
 ## Docs
 
