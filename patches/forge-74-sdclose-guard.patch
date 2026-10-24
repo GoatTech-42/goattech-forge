@@ -1,0 +1,22 @@
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -3893,7 +3893,18 @@
+     my_short_fn[0] = '\0'; // clear my_short_fn to avoid caching issues
+     select_print.reset();  // Reset select_print to avoid issues
+     select_file.reset();  // Reset select_file to avoid issues
+-    card.closefile();     // Close the file to avoid SD card issues
++    // FORGE issue-74 guard: this runs on every Main Menu transition, including
++    // forced ones mid-print (M117 dialog ENTER -> HMI_M117Info -> Goto_MainMenu).
++    // Closing the live SD file here leaves sdprinting set and filesize intact
++    // while sdpos resets to 0, so eof() stays FALSE; reads on the closed file
++    // return -1, and after SD_MAX_READ_ERRORS (5) the queue aborts the job via
++    // card.abortFilePrintNow() (navaismo/Marlin_bugfix_2.1_E3V3SE issue #74,
++    // source-traced; reviewer-corrected chain, not a clean EOF finish).
++    // printJobOngoing() covers active SD, host-selected SD and resumed prints;
++    // printingIsPaused() covers UI/host pauses where the file stays open.
++    // Idle browser/preview files (no print ongoing) are still closed as intended.
++    if (!Marlin::printJobOngoing() && !Marlin::printingIsPaused())
++      card.closefile();     // Close the file to avoid SD card issues
+   #endif
+ 
+   hasThumbnail = false; // Reset thumbnail flag
