@@ -5,6 +5,7 @@
 set -eu
 cd "$(dirname "$0")"
 TREE="${1:?usage: $0 <patched-marlin-tree> e.g. the src/<board>/Marlin work dir left by build.sh}"
+mkdir -p src/e3v3se
 cp "$TREE/src/e3v3se/forge_diag.cpp" src/e3v3se/forge_diag.cpp
 cp "$TREE/src/e3v3se/forge_diag.h"   src/e3v3se/forge_diag.h
 cmp -s "$TREE/src/e3v3se/forge_diag.cpp" src/e3v3se/forge_diag.cpp
