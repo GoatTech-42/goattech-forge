@@ -3,9 +3,9 @@
 #
 # Overlay model: this repo vendors no Marlin source. The script clones the
 # pinned upstream navaismo Marlin 2.1 port, applies the minimal GoatTech
-# branding diff plus the pinned Forge patch set (currently: the DWIN
-# FT-Motion input-shaping menu), and builds exactly one binary for exactly
-# one board.
+# branding diff plus the pinned Forge patch set (DWIN FT-Motion shaping menu,
+# #74 SD-close guard, diagnostics start guard, config restore, diagnostics
+# plate generator), and builds exactly one binary for exactly one board.
 #
 # Safety gate: build only the target matching the printer's physically
 # confirmed mainboard label and MCU. A compiled binary is not a validated
@@ -19,7 +19,7 @@ C13_ENV="STM32F103RET6_creality"
 C14_BRANCH="c14_sd"
 C14_COMMIT="14c5165729684b7b87282f6d25c1239b6569d9e3"
 C14_ENV="STM32F401RE_creality"
-GOATTECH_VERSION="0.3.0"
+GOATTECH_VERSION="0.4.0"
 
 # Forge patch set, pinned by full-content hash. Never bypassed: a patch file
 # whose bytes differ from this hash stops the build.
@@ -34,12 +34,16 @@ EXPECTED_PATCH3_SHA256="c653f40c1a28459014e0802b5e6df3efbd2555d79cccc5058d59f10f
 # Patch 4: config restore to the krasnaya_4 baseline (S_CURVE_ACCELERATION + LIN_ADVANCE)
 FORGE_PATCH4="patches/forge-config-restore.patch"
 EXPECTED_PATCH4_SHA256="47c5fe85488ae6a3ca13746645ee47a239d600adac90096b48d75e04217d31d4"
+# Patch 5: Forge diagnostics phase-1 plate generator (applied after the config restore, same strict pin)
+FORGE_PATCH5="patches/forge-diag-generator.patch"
+EXPECTED_PATCH5_SHA256="ba9aa8ab05f4b1960807f3053091026a10d41b6348191e235bfc1f4ab303d7a7"
 # Full-content hashes of every file the patches touch, after applying both
 # pinned patches to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
 EXPECTED_CARDREADER_SHA256="bc0e59731cf3a991001ce7caf3a562f2b413ec9c84d1166362faede2a5f0fa91"
-EXPECTED_FORGEDIAGH_SHA256="985e088223d0790d093f7e1312073f669c7608e1342a06355798ef77bddf95ac"
+EXPECTED_FORGEDIAGH_SHA256="7e62dcdb10db6810cdbdbb4ecf52c697e86b9459fb32637416fb7b555173e652"
+EXPECTED_FORGEDIAGCPP_SHA256="b6ca2d17c784f9aef1aa956d29f2ccd61396c577fe65c5b4f7f8c9b169060841"
 EXPECTED_DWINCPP_SHA256="ebe947f0cecd0f83915b9b6606786562ebd2c9723772b70d39bb2f9e590be4b0"
 EXPECTED_DWINH_SHA256="8b8bc96b843237a3c18830552b4fb5cd896c869dfe5b8feb5cae1efa86ddadad"
 EXPECTED_LANGEN_SHA256="e3c389755f03beceb4edc995ea071c32c022ddfb47681d2c2252c2102cb7be25"
@@ -98,6 +102,7 @@ verify_worktree_files() {
   [ "$(tree_sha256 Marlin/src/lcd/language/language_en.h)" = "$EXPECTED_LANGEN_SHA256" ] || return 1
   [ "$(tree_sha256 Marlin/src/sd/cardreader.cpp)" = "$EXPECTED_CARDREADER_SHA256" ] || return 1
   [ "$(tree_sha256 Marlin/src/e3v3se/forge_diag.h)" = "$EXPECTED_FORGEDIAGH_SHA256" ] || return 1
+  [ "$(tree_sha256 Marlin/src/e3v3se/forge_diag.cpp)" = "$EXPECTED_FORGEDIAGCPP_SHA256" ] || return 1
 }
 
 EXPECTED_PORCELAIN=" M Marlin/Configuration.h
@@ -106,13 +111,15 @@ EXPECTED_PORCELAIN=" M Marlin/Configuration.h
  M Marlin/src/lcd/dwin/creality/dwin.h
  M Marlin/src/lcd/language/language_en.h
  M Marlin/src/sd/cardreader.cpp
+?? Marlin/src/e3v3se/forge_diag.cpp
 ?? Marlin/src/e3v3se/forge_diag.h"
 
 # Reuse a staged tree only when the pin holds AND the worktree is exactly
 # "pinned source + branding patch + pinned Forge patch", proven three ways:
-#   1. git status --porcelain is exactly the five expected modified files
+#   1. git status --porcelain is exactly the six expected modified files plus
+#      the two untracked Forge diagnostics sources
 #      (no other modified, staged or untracked entries);
-#   2. each of the five files matches its full-content sha256;
+#   2. each of the eight files matches its full-content sha256;
 #   3. no ignored entries outside .pio/ (upstream .gitignore can hide named
 #      source/build inputs; only the PlatformIO output dir and reproducible
 #      Python __pycache__ bytecode caches are exempt).
@@ -177,6 +184,14 @@ if [ "$READY" -eq 0 ]; then
   git -C "$SRC" apply --check "$PATCH_FILE4" || fail "Forge patch 4 does not apply cleanly on top of the start-guard patch"
   git -C "$SRC" apply "$PATCH_FILE4"
   echo "Applied Forge patch $FORGE_PATCH4 (sha256 $EXPECTED_PATCH4_SHA256)"
+  PATCH_FILE5="$SCRIPT_DIR/$FORGE_PATCH5"
+  [ -f "$PATCH_FILE5" ] || fail "Forge patch 5 missing: $PATCH_FILE5"
+  ACTUAL_PATCH5_SHA256=$(sha256sum "$PATCH_FILE5" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH5_SHA256" = "$EXPECTED_PATCH5_SHA256" ] \
+    || fail "Forge patch 5 content mismatch (got $ACTUAL_PATCH5_SHA256); refusing to apply an unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE5" || fail "Forge patch 5 does not apply cleanly on top of the config-restore patch"
+  git -C "$SRC" apply "$PATCH_FILE5"
+  echo "Applied Forge patch $FORGE_PATCH5 (sha256 $EXPECTED_PATCH5_SHA256)"
 
   verify_worktree_files || fail "post-patch worktree content mismatch; refusing to build an unverified tree"
 fi
