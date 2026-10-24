@@ -1,0 +1,326 @@
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -56,6 +56,7 @@
+ #include "../../../module/printcounter.h"
+ #include "../../../module/motion.h"
+ #include "../../../module/planner.h"
++#include "../../../e3v3se/forge_diag.h"
+ #if ENABLED(EEPROM_SETTINGS)
+ #include "../../../module/settings.h"
+ #endif
+@@ -224,7 +225,7 @@
+         select_skew{0}, 
+         select_cextr{0}, 
+         select_display{0}, 
+-        select_item{0}, select_language{0}, select_hm_set_pid{0}, select_set_pid{0}, select_level{0}, select_show_pic{0};
++        select_item{0}, select_language{0}, select_hm_set_pid{0}, select_set_pid{0}, select_level{0}, select_show_pic{0}, select_forge_diag{0};
+ 
+ 
+ uint8_t index_file = MROWS,
+@@ -1500,6 +1501,17 @@
+   #define _MOTION_LAST_CASE MOTION_CASE_STEPS
+ #endif
+ 
++// Forge diagnostics entry (always present with the Forge patch chain).
++// Reference the concrete predecessor name: chaining through _MOTION_LAST_CASE
++// would be a self-referential macro cycle (macros expand lazily at use).
++#if ENABLED(DWIN_INPUT_SHAPING_MENU)
++  #define MOTION_CASE_DIAGNOSTICS (MOTION_CASE_INPUT_SHAPING + 1)
++#else
++  #define MOTION_CASE_DIAGNOSTICS (MOTION_CASE_STEPS + 1)
++#endif
++#undef _MOTION_LAST_CASE
++#define _MOTION_LAST_CASE MOTION_CASE_DIAGNOSTICS
++
+ #if ENABLED(DWIN_SKEW_MENU)
+   #define MOTION_CASE_SKEW (_MOTION_LAST_CASE + 1)
+   #define MOTION_CASE_TOTAL MOTION_CASE_SKEW
+@@ -1622,6 +1634,17 @@
+ #define PREHEAT_CASE_SAVE (PREHEAT_CASE_FAN + ENABLED(EEPROM_SETTINGS))
+ #define PREHEAT_CASE_TOTAL PREHEAT_CASE_SAVE
+ 
++// Forge diagnostics review-screen cases
++#define FORGEDIAG_CASE_NOZZLE 1
++#define FORGEDIAG_CASE_TEMPN  (FORGEDIAG_CASE_NOZZLE + 1)
++#define FORGEDIAG_CASE_TEMPB  (FORGEDIAG_CASE_TEMPN + 1)
++#define FORGEDIAG_CASE_GEN    (FORGEDIAG_CASE_TEMPB + 1)
++#define FORGEDIAG_CASE_TOTAL  FORGEDIAG_CASE_GEN
++
++void Draw_ForgeDiagnostics_Menu();
++void HMI_ForgeDiagnostics();
++void HMI_ForgeDiagnostics_Values();
++
+ #define ADVSET_CASE_HOMEOFF 1
+ #define ADVSET_CASE_PROBEOFF (ADVSET_CASE_HOMEOFF + ENABLED(HAS_ONESTEP_LEVELING))
+ #define ADVSET_CASE_HEPID (ADVSET_CASE_PROBEOFF + ENABLED(HAS_HOTEND))
+@@ -2579,6 +2602,11 @@
+     DWIN_Draw_Label(line, GET_TEXT_F(MSG_INPUT_SHAPING));
+   }
+ #endif
++  void draw_forge_diagnostics(const uint16_t line)
++  {
++    // No graphical asset for this label either; write it as a string
++    DWIN_Draw_Label(line, F("Diagnostics"));
++  }
+ // void draw_lin_adv(const uint16_t line)
+ // {
+ //   // There's no graphical asset for this label, so we just write it as string
+@@ -2639,6 +2667,7 @@
+     #if ENABLED(DWIN_INPUT_SHAPING_MENU)
+       draw_input_shaping(MBASE(MOTION_CASE_INPUT_SHAPING) + 2); // "Input shaping"
+     #endif  
++      draw_forge_diagnostics(MBASE(MOTION_CASE_DIAGNOSTICS) + 2); // Diagnostics
+     
+     #if ENABLED(DWIN_SKEW_MENU)
+       Draw_Skew_Menu(MBASE(MOTION_CASE_SKEW) + 2);              // "Skew Correction"
+@@ -2660,6 +2689,7 @@
+ #endif // HAS_CLASSIC_JERK
+     DWIN_Draw_Label(MBASE(MOTION_CASE_STEPS), GET_TEXT_F(MSG_STEPS_PER_MM));
+     DWIN_Draw_Label(MBASE(MOTION_CASE_INPUT_SHAPING), GET_TEXT_F(MSG_INPUT_SHAPING));
++    DWIN_Draw_Label(MBASE(MOTION_CASE_DIAGNOSTICS), F("Diagnostics"));
+ #else // USE_STRING_TITLES
+     draw_max_en(MBASE(MOTION_CASE_RATE));
+     draw_speed_en(27, MBASE(MOTION_CASE_RATE));  // "Max Speed"
+@@ -2706,6 +2736,8 @@
+     Draw_Menu_Line(++i, ICON_Setspeed); // input shaping line
+     Draw_More_Icon(i); // input shaping more icon
+   #endif  
++  Draw_Menu_Line(++i, ICON_PrintSize); // forge diagnostics line
++  Draw_More_Icon(i); // forge diagnostics more icon
+ 
+   #if ENABLED(DWIN_SKEW_MENU)
+     Draw_Menu_Line(++i, ICON_PrintSize); // skew correction line
+@@ -9882,6 +9914,185 @@
+ #endif
+ 
+ 
++
++// Forge Diagnostics review screen: parameter confirm + size estimate +
++// warnings, then generation through forge_diag::generate_plate (which gates
++// internally as well). Offline-verified generator; no on-printer claim.
++
++static forge_diag::PlateParams forge_diag_params { 40, 200, 60 };
++static bool forge_diag_overwrite_pending = false;
++
++static bool forge_diag_busy() {
++  return marlin.printingIsActive() || marlin.printingIsPaused() || card.isFileOpen() || planner.has_blocks_queued();
++}
++
++void Draw_ForgeDiagReview()
++{
++  char buf[40];
++  const uint32_t kb = (forge_diag::estimate_plate_bytes(forge_diag_params) + 512ul) / 1024ul;
++  snprintf_P(buf, sizeof(buf), PSTR("Est. size: %lu KB"), (unsigned long)kb);
++  DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(5) + 3, F("                    "));
++  DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(5) + 3, buf);
++  if (forge_diag_busy())
++    Draw_FtmNotice(F("Stop or finish job first"));
++  else if (!card.isMounted())
++    Draw_FtmNotice(F("No SD card"));
++  else if (forge_diag_overwrite_pending)
++    Draw_FtmNotice(F("Press again to OVERWRITE"));
++  else if (forge_diag_params.nozzle_x100 <= 25)
++    Draw_FtmNotice(F("Fine nozzle: multi-hour"));
++  else if (forge_diag_params.nozzle_x100 >= 60)
++    Draw_FtmNotice(F("Zone C probes high flow"));
++  else
++    Draw_FtmNotice(F("Zone C nears flow limit"));
++}
++
++void Draw_ForgeDiagnostics_Menu()
++{
++  Clear_Main_Window();
++  HMI_flag.Refresh_bottom_flag = true;
++
++  Draw_Title(F("Forge Diagnostics"));
++  DWIN_Draw_Label(MBASE(FORGEDIAG_CASE_NOZZLE), F("Nozzle size"));
++  DWIN_Draw_Label(MBASE(FORGEDIAG_CASE_TEMPN), F("Nozzle temp"));
++  DWIN_Draw_Label(MBASE(FORGEDIAG_CASE_TEMPB), F("Bed temp"));
++  DWIN_Draw_Label(MBASE(FORGEDIAG_CASE_GEN), F("Generate test plate"));
++
++  Draw_Back_First();
++  Draw_Menu_Line(FORGEDIAG_CASE_NOZZLE, ICON_HotendTemp);
++  Draw_Menu_Line(FORGEDIAG_CASE_TEMPN, ICON_HotendTemp);
++  Draw_Menu_Line(FORGEDIAG_CASE_TEMPB, ICON_BedTemp);
++  Draw_Menu_Line(FORGEDIAG_CASE_GEN, ICON_PrintSize);
++
++  DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(FORGEDIAG_CASE_NOZZLE) + 3, forge_diag_params.nozzle_x100);
++  DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPN) + 3, forge_diag_params.temp_nozzle);
++  DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, forge_diag_params.temp_bed);
++
++  forge_diag_overwrite_pending = false;
++  Draw_ForgeDiagReview();
++}
++
++void HMI_ForgeDiagnostics_Values()
++{
++  ENCODER_DiffState encoder_diffState = get_encoder_state();
++  if (encoder_diffState == ENCODER_DIFF_NO) return;
++  float &val = HMI_ValueStruct.ForgeDiag_scaled;
++  switch (checkkey)
++  {
++  case ForgeDiag_Nozzle:
++    if (Apply_Encoder(encoder_diffState, val))
++    {
++      checkkey = ForgeDiagnostics;
++      EncoderRate.enabled = false;
++      LIMIT(val, 20, 80);
++      forge_diag_params.nozzle_x100 = (uint16_t)(val + 0.5f);
++      forge_diag_overwrite_pending = false;
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(FORGEDIAG_CASE_NOZZLE) + 3, val);
++      Draw_ForgeDiagReview();
++      break;
++    }
++    LIMIT(val, 20, 80);
++    DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(FORGEDIAG_CASE_NOZZLE) + 3, val);
++    break;
++  case ForgeDiag_TempN:
++    if (Apply_Encoder(encoder_diffState, val))
++    {
++      checkkey = ForgeDiagnostics;
++      EncoderRate.enabled = false;
++      LIMIT(val, 170, (float)thermalManager.hotend_max_target(0));
++      forge_diag_params.temp_nozzle = (uint16_t)(val + 0.5f);
++      forge_diag_overwrite_pending = false; // any param change disarms a pending overwrite confirm
++      DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPN) + 3, (uint16_t)val);
++      Draw_ForgeDiagReview();
++      break;
++    }
++    LIMIT(val, 170, (float)thermalManager.hotend_max_target(0));
++    DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Select_Color, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPN) + 3, (uint16_t)val);
++    break;
++  case ForgeDiag_TempB:
++    if (Apply_Encoder(encoder_diffState, val))
++    {
++      checkkey = ForgeDiagnostics;
++      EncoderRate.enabled = false;
++      LIMIT(val, 0, BED_MAXTEMP);
++      forge_diag_params.temp_bed = (uint16_t)(val + 0.5f);
++      forge_diag_overwrite_pending = false; // any param change disarms a pending overwrite confirm
++      DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, (uint16_t)val);
++      Draw_ForgeDiagReview();
++      break;
++    }
++    LIMIT(val, 0, BED_MAXTEMP);
++    DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Select_Color, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, (uint16_t)val);
++    break;
++  default:
++    break;
++  }
++  DWIN_UpdateLCD();
++}
++
++void HMI_ForgeDiagnostics()
++{
++  ENCODER_DiffState encoder_diffState = get_encoder_state();
++  if (encoder_diffState == ENCODER_DIFF_NO) return;
++  if (encoder_diffState == ENCODER_DIFF_CW)
++  {
++    if (select_forge_diag.inc(1 + FORGEDIAG_CASE_TOTAL))
++      Move_Highlight(1, select_forge_diag.now);
++  }
++  else if (encoder_diffState == ENCODER_DIFF_CCW)
++  {
++    if (select_forge_diag.dec())
++      Move_Highlight(-1, select_forge_diag.now);
++  }
++  else if (encoder_diffState == ENCODER_DIFF_ENTER)
++  {
++    switch (select_forge_diag.now)
++    {
++    case 0: // Back
++      checkkey = MotionMenu;
++      select_motion.now = MOTION_CASE_DIAGNOSTICS;
++      Draw_Motion_Menu();
++      break;
++    case FORGEDIAG_CASE_NOZZLE:
++      checkkey = ForgeDiag_Nozzle;
++      HMI_ValueStruct.ForgeDiag_scaled = forge_diag_params.nozzle_x100;
++      DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Select_Color, 2, 2, VALUERANGE_X, MBASE(FORGEDIAG_CASE_NOZZLE) + 3, HMI_ValueStruct.ForgeDiag_scaled);
++      EncoderRate.enabled = true;
++      break;
++    case FORGEDIAG_CASE_TEMPN:
++      checkkey = ForgeDiag_TempN;
++      HMI_ValueStruct.ForgeDiag_scaled = forge_diag_params.temp_nozzle;
++      DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Select_Color, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPN) + 3, (uint16_t)forge_diag_params.temp_nozzle);
++      EncoderRate.enabled = true;
++      break;
++    case FORGEDIAG_CASE_TEMPB:
++      checkkey = ForgeDiag_TempB;
++      HMI_ValueStruct.ForgeDiag_scaled = forge_diag_params.temp_bed;
++      DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Select_Color, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, (uint16_t)forge_diag_params.temp_bed);
++      EncoderRate.enabled = true;
++      break;
++    case FORGEDIAG_CASE_GEN:
++      if (forge_diag_busy()) { Draw_FtmNotice(F("Stop or finish job first")); break; }
++      if (!card.isMounted()) { Draw_FtmNotice(F("No SD card")); break; }
++      if (card.fileExists(FORGE_DIAG_JOB_NAME) && !forge_diag_overwrite_pending)
++      {
++        forge_diag_overwrite_pending = true;
++        Draw_FtmNotice(F("Press again to OVERWRITE"));
++        break;
++      }
++      {
++        forge_diag_overwrite_pending = false;
++        Draw_FtmNotice(F("Generating plate..."));
++        DWIN_UpdateLCD();
++        const bool ok = forge_diag::generate_plate(forge_diag_params, true);
++        Draw_FtmNotice(ok ? F("Plate ready: FORGDIA1.G") : F("Generation failed"));
++      }
++      break;
++    }
++  }
++  DWIN_UpdateLCD();
++}
++
+ // void Draw_LinearAdv_Menu()
+ // {
+ //   Clear_Main_Window();
+@@ -10102,6 +10313,11 @@
+       Draw_InputShaping_Menu();
+       break;
+   #endif    
++    case MOTION_CASE_DIAGNOSTICS: // Forge Diagnostics
++      checkkey = ForgeDiagnostics;
++      select_forge_diag.reset();
++      Draw_ForgeDiagnostics_Menu();
++      break;
+     // case MOTION_CASE_LINADV: // Linear Advance
+     //   checkkey = LinearAdv;
+     //   select_linear_adv.reset();
+@@ -12705,6 +12921,14 @@
+     HMI_ShaperSel();
+     break;
+ #endif    
++  case ForgeDiagnostics:
++    HMI_ForgeDiagnostics();
++    break;
++  case ForgeDiag_Nozzle:
++  case ForgeDiag_TempN:
++  case ForgeDiag_TempB:
++    HMI_ForgeDiagnostics_Values();
++    break;
+     // case LinearAdv:
+     //   HMI_LinearAdv();
+     // break;
+--- a/Marlin/src/lcd/dwin/creality/dwin.h
++++ b/Marlin/src/lcd/dwin/creality/dwin.h
+@@ -122,6 +122,10 @@
+   InputShaping_YZeta,
+   InputShaping_ShaperSel,
+ #endif  
++  ForgeDiagnostics,
++  ForgeDiag_Nozzle,
++  ForgeDiag_TempN,
++  ForgeDiag_TempB,
+ #if ENABLED(DWIN_SKEW_MENU)  
+   SkewCorrection,
+   skewxy_dac,
+@@ -718,6 +722,7 @@
+   float Move_Y_scaled     = 0;
+   float Move_Z_scaled     = 0;
+   float InputShaping_scaled = 0;
++  float ForgeDiag_scaled = 0;
+   uint8_t Curve_index = 0;
+   uint16_t Auto_PID_Temp  = 0;
+   uint16_t Auto_PID_Value[3] = {0, 100, 260}; // 1: Hot bed temperature; 2 Nozzle temperature
