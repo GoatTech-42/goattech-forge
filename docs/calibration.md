@@ -42,8 +42,28 @@ tower test, read the cleanest frequency per axis, then set them, for example:
     M500           ; save
 
 C picks the shaper type (7 = 3HEI, 0 = off), A is the frequency in Hz - use
-your measured values, not the examples. An on-screen menu for this is on the
-GoatTech roadmap.
+your measured values, not the examples.
+
+### On-screen menu (experimental)
+
+Motion > Input Shaping adjusts the same settings without gcode. It is
+compiled in and source-reviewed, but not yet verified on a printer.
+
+- Shows per-axis shaper type, frequency and damping, plus the FT Motion
+  engine state ("FT Motion OFF - tuning has no effect" when the engine is
+  inactive).
+- While a print is active or paused, or motion is queued, the menu is
+  view-only and says "View only while printing". If a print starts in the
+  middle of an edit, the change is discarded and the screen says
+  "Locked - value NOT applied".
+- Changes save to EEPROM once, when you leave the menu with Back: the
+  screen shows "Shaping settings saved" or "EEPROM SAVE FAILED". A forced
+  exit loses unsaved changes: power loss, a reset, or the firmware
+  leaving the menu on its own (for example a print event or host action
+  that returns the screen to the main menu). Only the saved values are
+  what the printer keeps.
+- Frequency is limited to 20-500 Hz and damping to 0-0.25, the firmware's
+  own API bounds.
 
 ## 6. First test print
 
