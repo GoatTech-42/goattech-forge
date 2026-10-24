@@ -49,21 +49,36 @@ BANNER
 WORK=".build/$BOARD"
 CFG="$WORK/src/Marlin/Configuration.h"
 
+AUTHOR_OLD='#define STRING_CONFIG_H_AUTHOR "Marlin, Creality, Kraplax & Navaismo" // Original author or contributor.'
+AUTHOR_NEW='#define STRING_CONFIG_H_AUTHOR "GoatTech build of Marlin by Creality, Kraplax \& Navaismo" // Original author or contributor.'
+NAME_OLD='#define CUSTOM_MACHINE_NAME "Ender-3 V3 SE"'
+NAME_NEW='#define CUSTOM_MACHINE_NAME "GoatTech Ender-3 V3 SE"'
+
+# Reuse a staged tree only when the pin holds AND the entire worktree delta
+# vs HEAD is exactly the two-line branding change: no other modified, staged
+# or untracked files (ignored build outputs like .pio are not source inputs).
 if [ -d "$WORK/src/.git" ] && [ "$(git -C "$WORK/src" rev-parse HEAD 2>/dev/null)" = "$COMMIT" ]; then
-  echo "Reusing staged upstream tree at $COMMIT (delete .build/$BOARD for a clean run)"
-else
-  rm -rf "$WORK"
+  PORCELAIN=$(git -C "$WORK/src" status --porcelain)
+  NUMSTAT=$(git -C "$WORK/src" diff HEAD --numstat)
+  if [ "$PORCELAIN" = " M Marlin/Configuration.h" ] \
+     && [ "$NUMSTAT" = $'2\t2\tMarlin/Configuration.h' ] \
+     && grep -qF 'GoatTech build of Marlin' "$CFG" \
+     && grep -qF 'GoatTech Ender-3 V3 SE' "$CFG" \
+     && ! grep -qF "$AUTHOR_OLD" "$CFG" \
+     && ! grep -qF "$NAME_OLD" "$CFG"; then
+    echo "Reusing staged upstream tree at $COMMIT (worktree verified: branding diff only)"
+  else
+    echo "Staged tree differs from the pinned source beyond the branding diff; re-staging clean"
+    rm -rf "$WORK"
+  fi
+fi
+if [ ! -d "$WORK/src" ]; then
   mkdir -p "$WORK"
   echo "Cloning upstream $BRANCH @ $COMMIT"
   git clone --quiet "$UPSTREAM_URL" "$WORK/src"
   git -C "$WORK/src" checkout --quiet "$COMMIT"
   [ "$(git -C "$WORK/src" rev-parse HEAD)" = "$COMMIT" ] || fail "pinned commit checkout mismatch"
 fi
-
-AUTHOR_OLD='#define STRING_CONFIG_H_AUTHOR "Marlin, Creality, Kraplax & Navaismo" // Original author or contributor.'
-AUTHOR_NEW='#define STRING_CONFIG_H_AUTHOR "GoatTech build of Marlin by Creality, Kraplax \& Navaismo" // Original author or contributor.'
-NAME_OLD='#define CUSTOM_MACHINE_NAME "Ender-3 V3 SE"'
-NAME_NEW='#define CUSTOM_MACHINE_NAME "GoatTech Ender-3 V3 SE"'
 
 if grep -qF 'GoatTech build of Marlin' "$CFG" && grep -qF 'GoatTech Ender-3 V3 SE' "$CFG"; then
   echo "Branding already applied"
