@@ -31,10 +31,19 @@ temperature from bouncing during prints.
 
 ## 5. Input shaper
 
-The firmware ships FT_MOTION input shaping. Defaults are a safe starting
-point; the right frequencies depend on your individual printer. Print a
-ringing/tower test and set the result with M493 (an on-screen menu for this
-is on the GoatTech roadmap).
+The firmware ships FT_MOTION input shaping, but out of the box only Y is
+shaped (3HEI at 42 Hz) - X ships unshaped, so set both axes. The right
+frequencies depend on your individual printer: print a ringing or resonance
+tower test, read the cleanest frequency per axis, then set them, for example:
+
+    M493 S1        ; enable FT_MOTION
+    M493 X C7 A37  ; X axis: 3HEI shaper at 37 Hz
+    M493 Y C7 A42  ; Y axis: 3HEI shaper at 42 Hz
+    M500           ; save
+
+C picks the shaper type (7 = 3HEI, 0 = off), A is the frequency in Hz - use
+your measured values, not the examples. An on-screen menu for this is on the
+GoatTech roadmap.
 
 ## 6. First test print
 
