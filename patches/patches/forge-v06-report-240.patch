@@ -1,0 +1,51 @@
+--- a/Marlin/src/e3v3se/forge_diag.h
++++ b/Marlin/src/e3v3se/forge_diag.h
+@@ -25,7 +25,7 @@
+ #endif
+ 
+ #define FORGE_REPORT_MAX_LINES 16
+-#define FORGE_REPORT_WIDTH     33  // 32 chars + NUL, fits the 272px panel at 8px/char
++#define FORGE_REPORT_WIDTH     30  // 29 chars + NUL, fits 240px at 8px/char
+ 
+ namespace forge_diag {
+ 
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -367,7 +367,7 @@
+   put_line(out, n, max, "nozzle %d/%d C %s", hn, tn, sens_n ? "[ok]" : "[check]");
+   put_line(out, n, max, "bed    %d/%d C %s", hb, tb, sens_b ? "[ok]" : "[check]");
+   put_line(out, n, max, "heaters %s", (tn == 0 && tb == 0) ? "[off]" : "[ON]");
+-  put_line(out, n, max, "thermal prot noz %s bed %s",
++  put_line(out, n, max, "prot nozzle %s bed %s",
+     #if ENABLED(THERMAL_PROTECTION_HOTENDS)
+       "[on]",
+     #else
+@@ -393,7 +393,7 @@
+   );
+   {
+     char k[14]; dtostrf(planner.extruder_advance_K[0], 0, 3, k);
+-    put_line(out, n, max, "accel %d  lin adv K %s", (int)planner.settings.acceleration, k);
++    put_line(out, n, max, "acc %d LA K %s", (int)planner.settings.acceleration, k);
+   }
+   put_line(out, n, max, "s-curve %s  plr %s",
+     #if ENABLED(S_CURVE_ACCELERATION)
+@@ -413,7 +413,7 @@
+       card.fileExists(FORGE_DIAG_TEMP_NAME) ? "[STALE]" : "[none]");
+   }
+   else put_line(out, n, max, "FORGDIA1.G [no sd]");
+-  put_line(out, n, max, "read-only: no heat, no motion");
++  put_line(out, n, max, "read-only: no heat/motion");
+   put_line(out, n, max, "click to go back");
+   return n;
+ }
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -9998,7 +9998,7 @@
+   Draw_Title(F("Forge Report"));
+   const uint8_t n = forge_diag::build_report(lines, FORGE_REPORT_MAX_LINES);
+   for (uint8_t i = 0; i < n; i++)
+-    DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, 8, 40 + i * 22, lines[i]);
++    DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, 4, 34 + i * 17, lines[i]);
+   DWIN_UpdateLCD();
+ }
+ 
