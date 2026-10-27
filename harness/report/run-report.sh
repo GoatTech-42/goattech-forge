@@ -18,4 +18,4 @@ cp "$TREE/src/e3v3se/forge_diag.h" src/e3v3se/forge_diag.h
 cmp -s "$TREE/src/e3v3se/forge_diag.cpp" src/e3v3se/forge_diag.cpp
 g++ -std=c++17 -O1 -DFORGE_TEST_BUILD -include common.h -I. report_main.cpp src/e3v3se/forge_diag.cpp -o report-bin
 ./report-bin
-python3 render_report.py /tmp/forge-report
+# Pixel rendering requires the matching panel font bank; no stand-in render is invoked.
