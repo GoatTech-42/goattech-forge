@@ -20,7 +20,7 @@ C13_ENV="STM32F103RET6_creality"
 C14_BRANCH="c14_sd"
 C14_COMMIT="14c5165729684b7b87282f6d25c1239b6569d9e3"
 C14_ENV="STM32F401RE_creality"
-GOATTECH_VERSION="0.5.0"
+GOATTECH_VERSION="0.6.0"
 
 # Forge patch set, pinned by full-content hash. Never bypassed: a patch file
 # whose bytes differ from this hash stops the build.
@@ -41,20 +41,37 @@ EXPECTED_PATCH5_SHA256="ba9aa8ab05f4b1960807f3053091026a10d41b6348191e235bfc1f4a
 # Patch 6: Forge diagnostics menu / review screen (applied after the generator, same strict pin)
 FORGE_PATCH6="patches/forge-diag-menu.patch"
 EXPECTED_PATCH6_SHA256="7f600ef66bbcba88caec74f282146a4418e62660fd91dfdf5af320c38068cada"
+# Patch 7: Forge version label + read-only "Run diagnostics" report (the report is compiled in only with the "test" build flag)
+FORGE_PATCH7="patches/forge-v06-diag-report.patch"
+EXPECTED_PATCH7_SHA256="6226094e8e006b97ed662508c8d31a015f65fff4187c2d3e54243d75d8322eb0"
+# Patch 8: generator prime height (descend before the prime line) + M107 in the end block. Behavior change to generated
+# G-code only; NOT a bed-scrape fix and not clearance proof.
+FORGE_PATCH8="patches/forge-v06-prime-m107.patch"
+EXPECTED_PATCH8_SHA256="6d80ad05843aef3bb798e07b8821208ec37439f2084096bdc20d54a77c7cfca1"
 # Full-content hashes of every file the patches touch, after applying the
 # full pinned patch chain to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
 EXPECTED_CARDREADER_SHA256="bc0e59731cf3a991001ce7caf3a562f2b413ec9c84d1166362faede2a5f0fa91"
-EXPECTED_FORGEDIAGH_SHA256="7e62dcdb10db6810cdbdbb4ecf52c697e86b9459fb32637416fb7b555173e652"
-EXPECTED_FORGEDIAGCPP_SHA256="b6ca2d17c784f9aef1aa956d29f2ccd61396c577fe65c5b4f7f8c9b169060841"
-EXPECTED_DWINCPP_SHA256="e788bf250fab558fd79a49db2509e470d5c26cfea8869bdb6842c995f501fe45"
-EXPECTED_DWINH_SHA256="9e9c4bee320819789f4f1af70da05761c7182012fe32ba222b20fd4c161f3476"
+EXPECTED_FORGEDIAGH_SHA256="81634355ae07e0a8283ba1723cf49646883ea55051d2f4ac1f91afaeb70d0835"
+EXPECTED_FORGEDIAGCPP_SHA256="c410648865498c62d95ce06f1db5609f0b9bb2d87e8ef3e70fb011f70d0221c1"
+EXPECTED_DWINCPP_SHA256="61e6105bb4f3d20f69c20c680479e54fc81137af3b5c35293c1f7a455ec44e9d"
+EXPECTED_DWINH_SHA256="58141564db25946d6ab55fe0df923054aed3d91e9a2222429cc921a4c5af87fb"
 EXPECTED_LANGEN_SHA256="e3c389755f03beceb4edc995ea071c32c022ddfb47681d2c2252c2102cb7be25"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
 
-[ $# -eq 1 ] || fail "Usage: $0 c13|c14"
+[ $# -ge 1 ] && [ $# -le 2 ] || fail "Usage: $0 c13|c14 [test]"
+# "test" compiles the read-only Run diagnostics report into the Forge Diagnostics menu
+# (-DFORGE_TEST_BUILD). Release builds (no second argument) do not contain it.
+VARIANT=release
+if [ $# -eq 2 ]; then
+  [ "$2" = "test" ] || fail "Unknown variant '$2'. Expected: test"
+  VARIANT=test
+  export PLATFORMIO_BUILD_FLAGS="-DFORGE_TEST_BUILD"
+else
+  unset PLATFORMIO_BUILD_FLAGS
+fi
 case "$1" in
   c13)
     BOARD=c13; BRANCH="$C13_BRANCH"; COMMIT="$C13_COMMIT"; ENV_NAME="$C13_ENV"
@@ -205,16 +222,36 @@ if [ "$READY" -eq 0 ]; then
   git -C "$SRC" apply "$PATCH_FILE6"
   echo "Applied Forge patch $FORGE_PATCH6 (sha256 $EXPECTED_PATCH6_SHA256)"
 
+  PATCH_FILE7="$SCRIPT_DIR/$FORGE_PATCH7"
+  [ -f "$PATCH_FILE7" ] || fail "Forge patch 7 missing: $PATCH_FILE7"
+  ACTUAL_PATCH7_SHA256=$(sha256sum "$PATCH_FILE7" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH7_SHA256" = "$EXPECTED_PATCH7_SHA256" ] \
+    || fail "Forge patch 7 content mismatch (got $ACTUAL_PATCH7_SHA256); refusing to apply an unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE7" || fail "Forge patch 7 does not apply cleanly on top of the diagnostics menu patch"
+  git -C "$SRC" apply "$PATCH_FILE7"
+  echo "Applied Forge patch $FORGE_PATCH7 (sha256 $EXPECTED_PATCH7_SHA256)"
+  PATCH_FILE8="$SCRIPT_DIR/$FORGE_PATCH8"
+  [ -f "$PATCH_FILE8" ] || fail "Forge patch 8 missing: $PATCH_FILE8"
+  ACTUAL_PATCH8_SHA256=$(sha256sum "$PATCH_FILE8" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH8_SHA256" = "$EXPECTED_PATCH8_SHA256" ] \
+    || fail "Forge patch 8 content mismatch (got $ACTUAL_PATCH8_SHA256); refusing to apply an unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE8" || fail "Forge patch 8 does not apply cleanly on top of patch 7"
+  git -C "$SRC" apply "$PATCH_FILE8"
+  echo "Applied Forge patch $FORGE_PATCH8 (sha256 $EXPECTED_PATCH8_SHA256)"
+
   verify_worktree_files || fail "post-patch worktree content mismatch; refusing to build an unverified tree"
 fi
 
+echo "Variant: $VARIANT"
 echo "Building env $ENV_NAME (this downloads the toolchain on first run)"
 ( cd "$SRC" && "$PIO" run -e "$ENV_NAME" )
 
 BIN=$(ls -t "$SRC/.pio/build/$ENV_NAME"/firmware*.bin 2>/dev/null | head -1)
 [ -n "$BIN" ] || fail "no firmware .bin produced under .pio/build/$ENV_NAME"
 mkdir -p dist
-OUT="dist/GoatTech-Ender3V3SE-${BOARD}-v${GOATTECH_VERSION}.bin"
+SUFFIX=""
+[ "$VARIANT" = "test" ] && SUFFIX="-test"
+OUT="dist/GoatTech-Ender3V3SE-${BOARD}-v${GOATTECH_VERSION}${SUFFIX}.bin"
 cp "$BIN" "$OUT"
 echo "Artifact: $OUT"
 command -v sha256sum >/dev/null && sha256sum "$OUT"
