@@ -48,15 +48,19 @@ EXPECTED_PATCH7_SHA256="6226094e8e006b97ed662508c8d31a015f65fff4187c2d3e54243d75
 # G-code only; NOT a bed-scrape fix and not clearance proof.
 FORGE_PATCH8="patches/forge-v06-prime-m107.patch"
 EXPECTED_PATCH8_SHA256="6d80ad05843aef3bb798e07b8821208ec37439f2084096bdc20d54a77c7cfca1"
+# Patch 9: fit the test-only report to the configured 240x320 panel.
+FORGE_PATCH9="patches/forge-v06-report-240.patch"
+EXPECTED_PATCH9_SHA256="45e2f527ff63bab8144efdfa2838aaf67ec2092ef07b1736b8c33b3482a4b516"
 # Full-content hashes of every file the patches touch, after applying the
 # full pinned patch chain to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
 EXPECTED_CARDREADER_SHA256="bc0e59731cf3a991001ce7caf3a562f2b413ec9c84d1166362faede2a5f0fa91"
-EXPECTED_FORGEDIAGH_SHA256="81634355ae07e0a8283ba1723cf49646883ea55051d2f4ac1f91afaeb70d0835"
-EXPECTED_FORGEDIAGCPP_SHA256="c410648865498c62d95ce06f1db5609f0b9bb2d87e8ef3e70fb011f70d0221c1"
-EXPECTED_DWINCPP_SHA256="61e6105bb4f3d20f69c20c680479e54fc81137af3b5c35293c1f7a455ec44e9d"
+EXPECTED_FORGEDIAGH_SHA256="02c690725ecf8769c849b3e643efc894c71718a698bf39578b89e694de4fd9de"
+EXPECTED_FORGEDIAGCPP_SHA256="8c4c9557df0f71a073cfdb395b80d9bcee52157d85cf104a4654980d624bf3ea"
+EXPECTED_DWINCPP_SHA256="8e0a4235493145dc4fbe1acf794b44f62363f0b2f3e7bfeb5ce96b67170ad426"
 EXPECTED_DWINH_SHA256="58141564db25946d6ab55fe0df923054aed3d91e9a2222429cc921a4c5af87fb"
+EXPECTED_DWINFONT_SHA256="e3b05e148b33b2877589c540ae764f347c74b5aa87fddb7723bb8ca3a55856d9"
 EXPECTED_LANGEN_SHA256="e3c389755f03beceb4edc995ea071c32c022ddfb47681d2c2252c2102cb7be25"
 
 fail() { echo "ERROR: $*" >&2; exit 1; }
@@ -116,6 +120,7 @@ tree_sha256() { sha256sum "$SRC/$1" | cut -d' ' -f1; }
 # target plus every file the Forge patch chain rewrites, each by full-content
 # hash. Deterministic because pin + patch bytes are both pinned.
 verify_worktree_files() {
+  [ "$(tree_sha256 Marlin/src/lcd/dwin/common/dwin_font.h)" = "$EXPECTED_DWINFONT_SHA256" ] || return 1
   [ "$(tree_sha256 Marlin/Configuration.h)" = "$EXPECTED_CFG_SHA256" ] || return 1
   [ "$(tree_sha256 Marlin/Configuration_adv.h)" = "$EXPECTED_ADV_SHA256" ] || return 1
   [ "$(tree_sha256 Marlin/src/lcd/dwin/creality/dwin.cpp)" = "$EXPECTED_DWINCPP_SHA256" ] || return 1
@@ -238,6 +243,14 @@ if [ "$READY" -eq 0 ]; then
   git -C "$SRC" apply --check "$PATCH_FILE8" || fail "Forge patch 8 does not apply cleanly on top of patch 7"
   git -C "$SRC" apply "$PATCH_FILE8"
   echo "Applied Forge patch $FORGE_PATCH8 (sha256 $EXPECTED_PATCH8_SHA256)"
+
+  PATCH_FILE9="$SCRIPT_DIR/$FORGE_PATCH9"
+  [ -f "$PATCH_FILE9" ] || fail "Forge patch 9 missing: $PATCH_FILE9"
+  ACTUAL_PATCH9_SHA256=$(sha256sum "$PATCH_FILE9" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH9_SHA256" = "$EXPECTED_PATCH9_SHA256" ] \
+    || fail "Forge patch 9 content mismatch; refusing unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE9" || fail "Forge patch 9 does not apply cleanly"
+  git -C "$SRC" apply "$PATCH_FILE9"
 
   verify_worktree_files || fail "post-patch worktree content mismatch; refusing to build an unverified tree"
 fi
