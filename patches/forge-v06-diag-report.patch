@@ -1,0 +1,278 @@
+diff --git a/Marlin/src/e3v3se/forge_diag.cpp b/Marlin/src/e3v3se/forge_diag.cpp
+index 395b21eca0..6b581f78d5 100644
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -27,6 +27,10 @@
+ #include "../module/planner.h"
+ #include "../module/temperature.h"
+ #include "../lcd/marlinui.h"
++#ifdef FORGE_TEST_BUILD
++#include "../module/probe.h"
++#include "../inc/Version.h"
++#endif
+ 
+ #include <stdarg.h>
+ #include <stdlib.h>
+@@ -336,4 +340,82 @@ bool generate_plate(const PlateParams &p, const bool allow_overwrite) {
+   return true;
+ }
+ 
++#ifdef FORGE_TEST_BUILD
++// ---------------- read-only report (test builds only) ---------------------
++
++static void put_line(char out[][FORGE_REPORT_WIDTH], uint8_t &n, const uint8_t max, const char *fmt, ...) {
++  if (n >= max) return;
++  va_list ap; va_start(ap, fmt);
++  vsnprintf(out[n], FORGE_REPORT_WIDTH, fmt, ap);
++  va_end(ap);
++  out[n][FORGE_REPORT_WIDTH - 1] = '\0';
++  n++;
++}
++
++uint8_t build_report(char out[][FORGE_REPORT_WIDTH], const uint8_t max) {
++  uint8_t n = 0;
++  put_line(out, n, max, "%s", FORGE_VERSION_LABEL);
++  put_line(out, n, max, "base %s", SHORT_BUILD_VERSION);
++  put_line(out, n, max, "board %s", BOARD_INFO_NAME);
++  put_line(out, n, max, "up %lus  sd %s", (unsigned long)(millis() / 1000UL), card.isMounted() ? "[ok]" : "[none]");
++
++  const int16_t hn = (int16_t)(thermalManager.degHotend(0) + 0.5f), hb = (int16_t)(thermalManager.degBed() + 0.5f);
++  const int16_t tn = (int16_t)thermalManager.degTargetHotend(0), tb = (int16_t)thermalManager.degTargetBed();
++  const bool sens_n = hn > HEATER_0_MINTEMP && hn < (HEATER_0_MAXTEMP - 10);
++  const bool sens_b = hb > BED_MINTEMP && hb < (BED_MAXTEMP - 5);
++  put_line(out, n, max, "nozzle %d/%d C %s", hn, tn, sens_n ? "[ok]" : "[check]");
++  put_line(out, n, max, "bed    %d/%d C %s", hb, tb, sens_b ? "[ok]" : "[check]");
++  put_line(out, n, max, "heaters %s", (tn == 0 && tb == 0) ? "[off]" : "[ON]");
++  put_line(out, n, max, "thermal prot noz %s bed %s",
++    #if ENABLED(THERMAL_PROTECTION_HOTENDS)
++      "[on]",
++    #else
++      "[OFF]",
++    #endif
++    #if ENABLED(THERMAL_PROTECTION_BED)
++      "[on]"
++    #else
++      "[OFF]"
++    #endif
++  );
++  put_line(out, n, max, "max temp noz %d bed %d", (int)thermalManager.hotend_max_target(0), (int)BED_MAXTEMP);
++  {
++    char zo[14]; dtostrf(probe.offset.z, 0, 2, zo);
++    put_line(out, n, max, "z offset %s mm", zo);
++  }
++  put_line(out, n, max, "leveling %s",
++    #if HAS_LEVELING
++      planner.leveling_active ? "[on]" : "[off]"
++    #else
++      "[n/a]"
++    #endif
++  );
++  {
++    char k[14]; dtostrf(planner.extruder_advance_K[0], 0, 3, k);
++    put_line(out, n, max, "accel %d  lin adv K %s", (int)planner.settings.acceleration, k);
++  }
++  put_line(out, n, max, "s-curve %s  plr %s",
++    #if ENABLED(S_CURVE_ACCELERATION)
++      "[on]",
++    #else
++      "[off]",
++    #endif
++    #if ENABLED(POWER_LOSS_RECOVERY)
++      recovery.enabled ? "[on]" : "[off]"
++    #else
++      "[n/a]"
++    #endif
++  );
++  if (card.isMounted()) {
++    put_line(out, n, max, "FORGDIA1.G %s tmp %s",
++      card.fileExists(FORGE_DIAG_JOB_NAME) ? "[yes]" : "[none]",
++      card.fileExists(FORGE_DIAG_TEMP_NAME) ? "[STALE]" : "[none]");
++  }
++  else put_line(out, n, max, "FORGDIA1.G [no sd]");
++  put_line(out, n, max, "read-only: no heat, no motion");
++  put_line(out, n, max, "click to go back");
++  return n;
++}
++#endif // FORGE_TEST_BUILD
++
+ } // namespace forge_diag
+diff --git a/Marlin/src/e3v3se/forge_diag.h b/Marlin/src/e3v3se/forge_diag.h
+index 065ac42ebb..f2b68d23af 100644
+--- a/Marlin/src/e3v3se/forge_diag.h
++++ b/Marlin/src/e3v3se/forge_diag.h
+@@ -15,6 +15,18 @@
+ #define FORGE_DIAG_TEMP_NAME "FORGDIA1.TMP"
+ #define FORGE_DIAG_SENTINEL  ";FORGE_DIAG_COMPLETE"
+ 
++// Forge's own version, shown on the Info screen. Test builds (compiled with
++// -DFORGE_TEST_BUILD) say so; release builds omit the Run diagnostics report.
++#define FORGE_VERSION "0.6.0"
++#ifdef FORGE_TEST_BUILD
++  #define FORGE_VERSION_LABEL "Forge " FORGE_VERSION "-test"
++#else
++  #define FORGE_VERSION_LABEL "Forge " FORGE_VERSION
++#endif
++
++#define FORGE_REPORT_MAX_LINES 16
++#define FORGE_REPORT_WIDTH     33  // 32 chars + NUL, fits the 272px panel at 8px/char
++
+ namespace forge_diag {
+ 
+ struct PlateParams {
+@@ -33,4 +45,11 @@ uint32_t estimate_plate_bytes(const PlateParams &p);
+ // allow_overwrite. Fail-closed on any SD error.
+ bool generate_plate(const PlateParams &p, const bool allow_overwrite);
+ 
++#ifdef FORGE_TEST_BUILD
++// Read-only report for the test-build "Run diagnostics" screen. Reads current
++// state only: no heating, no motion, no SD writes. Fills out[] with up to
++// max lines and returns the line count.
++uint8_t build_report(char out[][FORGE_REPORT_WIDTH], const uint8_t max);
++#endif
++
+ } // namespace forge_diag
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.cpp b/Marlin/src/lcd/dwin/creality/dwin.cpp
+index 484f8419e7..6e85e907d6 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -1639,11 +1639,20 @@ inline bool Apply_Encoder(const ENCODER_DiffState &encoder_diffState, T &valref)
+ #define FORGEDIAG_CASE_TEMPN  (FORGEDIAG_CASE_NOZZLE + 1)
+ #define FORGEDIAG_CASE_TEMPB  (FORGEDIAG_CASE_TEMPN + 1)
+ #define FORGEDIAG_CASE_GEN    (FORGEDIAG_CASE_TEMPB + 1)
++#ifdef FORGE_TEST_BUILD
++#define FORGEDIAG_CASE_RUN    (FORGEDIAG_CASE_GEN + 1) // test builds only: read-only report
++#define FORGEDIAG_CASE_TOTAL  FORGEDIAG_CASE_RUN
++#else
+ #define FORGEDIAG_CASE_TOTAL  FORGEDIAG_CASE_GEN
++#endif
+ 
+ void Draw_ForgeDiagnostics_Menu();
+ void HMI_ForgeDiagnostics();
+ void HMI_ForgeDiagnostics_Values();
++#ifdef FORGE_TEST_BUILD
++void Draw_ForgeDiagReport();
++void HMI_ForgeDiagReport();
++#endif
+ 
+ #define ADVSET_CASE_HOMEOFF 1
+ #define ADVSET_CASE_PROBEOFF (ADVSET_CASE_HOMEOFF + ENABLED(HAS_ONESTEP_LEVELING))
+@@ -6041,7 +6050,7 @@ void Draw_Info_Menu()
+     DWIN_ICON_Show(HMI_flag.language, LANGUAGE_Contact, 81, 229); // Contact us
+ 
+     DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(MACHINE_SIZE) * MENU_CHR_W) / 2 + 20, 120, F(MACHINE_SIZE));
+-    DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(SHORT_BUILD_VERSION) * MENU_CHR_W) / 2 + 20, 195, F(SHORT_BUILD_VERSION));
++    DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(FORGE_VERSION_LABEL) * MENU_CHR_W) / 2 + 20, 195, F(FORGE_VERSION_LABEL));
+     if (Chinese == HMI_flag.language)
+     {
+       DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(CORP_WEBSITE_C) * MENU_CHR_W) / 2 + 20, 268, F(CORP_WEBSITE_C));
+@@ -6072,7 +6081,7 @@ void Draw_Info_Menu()
+     DWIN_ICON_Show(HMI_flag.language, LANGUAGE_Contact, 66, 178);          // Contact us
+     DWIN_ICON_Show(HMI_flag.language, LANGUAGE_Hardware_Version, 66, 247); // Contact us
+     DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(MACHINE_SIZE) * MENU_CHR_W) / 2 + 20, 90, F(MACHINE_SIZE));
+-    DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(SHORT_BUILD_VERSION) * MENU_CHR_W) / 2 + 20, 149, F(SHORT_BUILD_VERSION));
++    DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(FORGE_VERSION_LABEL) * MENU_CHR_W) / 2 + 20, 149, F(FORGE_VERSION_LABEL));
+     if (Chinese == HMI_flag.language)
+     {
+       DWIN_Draw_String(false, false, font8x16, Color_White, Color_Bg_Black, (DWIN_WIDTH - strlen(CORP_WEBSITE_C) * MENU_CHR_W) / 2 + 20, 215, F(CORP_WEBSITE_C));
+@@ -9931,8 +9940,10 @@ void Draw_ForgeDiagReview()
+   char buf[40];
+   const uint32_t kb = (forge_diag::estimate_plate_bytes(forge_diag_params) + 512ul) / 1024ul;
+   snprintf_P(buf, sizeof(buf), PSTR("Est. size: %lu KB"), (unsigned long)kb);
++#ifndef FORGE_TEST_BUILD // test builds put "Run diagnostics" on this row
+   DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(5) + 3, F("                    "));
+   DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, LBLX, MBASE(5) + 3, buf);
++#endif
+   if (forge_diag_busy())
+     Draw_FtmNotice(F("Stop or finish job first"));
+   else if (!card.isMounted())
+@@ -9963,6 +9974,10 @@ void Draw_ForgeDiagnostics_Menu()
+   Draw_Menu_Line(FORGEDIAG_CASE_TEMPN, ICON_HotendTemp);
+   Draw_Menu_Line(FORGEDIAG_CASE_TEMPB, ICON_BedTemp);
+   Draw_Menu_Line(FORGEDIAG_CASE_GEN, ICON_PrintSize);
++#ifdef FORGE_TEST_BUILD
++  DWIN_Draw_Label(MBASE(FORGEDIAG_CASE_RUN), F("Run diagnostics"));
++  Draw_Menu_Line(FORGEDIAG_CASE_RUN, ICON_Info);
++#endif
+ 
+   DWIN_Draw_FloatValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 2, 2, VALUERANGE_X, MBASE(FORGEDIAG_CASE_NOZZLE) + 3, forge_diag_params.nozzle_x100);
+   DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPN) + 3, forge_diag_params.temp_nozzle);
+@@ -9972,6 +9987,39 @@ void Draw_ForgeDiagnostics_Menu()
+   Draw_ForgeDiagReview();
+ }
+ 
++#ifdef FORGE_TEST_BUILD
++// Test-build report screen: one read-only page to photograph. Turning the
++// knob refreshes the readings; clicking returns to the Diagnostics menu.
++void Draw_ForgeDiagReport()
++{
++  static char lines[FORGE_REPORT_MAX_LINES][FORGE_REPORT_WIDTH];
++  Clear_Main_Window();
++  HMI_flag.Refresh_bottom_flag = true;
++  Draw_Title(F("Forge Report"));
++  const uint8_t n = forge_diag::build_report(lines, FORGE_REPORT_MAX_LINES);
++  for (uint8_t i = 0; i < n; i++)
++    DWIN_Draw_String(false, true, font8x16, Color_White, Color_Bg_Black, 8, 40 + i * 22, lines[i]);
++  DWIN_UpdateLCD();
++}
++
++void HMI_ForgeDiagReport()
++{
++  ENCODER_DiffState encoder_diffState = get_encoder_state();
++  if (encoder_diffState == ENCODER_DIFF_NO) return;
++  if (encoder_diffState == ENCODER_DIFF_ENTER)
++  {
++    checkkey = ForgeDiagnostics;
++    select_forge_diag.now = FORGEDIAG_CASE_RUN;
++    Draw_ForgeDiagnostics_Menu();
++    Erase_Menu_Cursor(0);
++    Draw_Menu_Cursor(FORGEDIAG_CASE_RUN);
++    DWIN_UpdateLCD();
++  }
++  else
++    Draw_ForgeDiagReport(); // CW/CCW: refresh readings
++}
++#endif
++
+ void HMI_ForgeDiagnostics_Values()
+ {
+   ENCODER_DiffState encoder_diffState = get_encoder_state();
+@@ -10088,6 +10136,13 @@ void HMI_ForgeDiagnostics()
+         Draw_FtmNotice(ok ? F("Plate ready: FORGDIA1.G") : F("Generation failed"));
+       }
+       break;
++#ifdef FORGE_TEST_BUILD
++    case FORGEDIAG_CASE_RUN: // read-only: no heating, no motion, no SD writes
++      if (forge_diag_busy()) { Draw_FtmNotice(F("Stop or finish job first")); break; }
++      checkkey = ForgeDiagReport;
++      Draw_ForgeDiagReport();
++      break;
++#endif
+     }
+   }
+   DWIN_UpdateLCD();
+@@ -12924,6 +12979,11 @@ void DWIN_HandleScreen()
+   case ForgeDiagnostics:
+     HMI_ForgeDiagnostics();
+     break;
++#ifdef FORGE_TEST_BUILD
++  case ForgeDiagReport:
++    HMI_ForgeDiagReport();
++    break;
++#endif
+   case ForgeDiag_Nozzle:
+   case ForgeDiag_TempN:
+   case ForgeDiag_TempB:
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.h b/Marlin/src/lcd/dwin/creality/dwin.h
+index 1f2006fbde..274b849796 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.h
++++ b/Marlin/src/lcd/dwin/creality/dwin.h
+@@ -123,6 +123,9 @@ enum processID : uint8_t {
+   InputShaping_ShaperSel,
+ #endif  
+   ForgeDiagnostics,
++#ifdef FORGE_TEST_BUILD
++  ForgeDiagReport,
++#endif
+   ForgeDiag_Nozzle,
+   ForgeDiag_TempN,
+   ForgeDiag_TempB,
