@@ -1,0 +1,21 @@
+diff --git a/Marlin/src/e3v3se/forge_diag.cpp b/Marlin/src/e3v3se/forge_diag.cpp
+index 6b581f78d5..1c908ffdd4 100644
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -187,6 +187,7 @@ static void emit_plate(const PlateParams &p) {
+   g_e = 0.0; g_retracted = false;
+   emit("G92 E0\n");
+   move_xy(20, 5, 3000);
++  move_z(d.layer_h, 600); // post-G28 Z is >= 10mm: descend to first-layer height so the prime line can adhere
+   move_xy_e(180, 5, 160.0f, 1200, d); // prime line along front edge
+   set_retract(true, d);
+   move_z(2.0f, 600);
+@@ -256,7 +257,7 @@ static void emit_plate(const PlateParams &p) {
+   }
+ 
+   // 6. End block + sentinel as the exact final line (guard tail window)
+-  emit("M400\nM104 S0\nM140 S0\nG91\nG1 E-2 F2400\nG90\n");
++  emit("M400\nM104 S0\nM140 S0\nM107\nG91\nG1 E-2 F2400\nG90\n");
+   emit("G1 Z5 F600\nG1 X0 Y200 F3000\nM84\nM400\n");
+   emit(FORGE_DIAG_SENTINEL "\n");
+ }
