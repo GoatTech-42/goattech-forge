@@ -1,0 +1,56 @@
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.cpp b/Marlin/src/lcd/dwin/creality/dwin.cpp
+index 4a888a8..66ee45a 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.cpp
++++ b/Marlin/src/lcd/dwin/creality/dwin.cpp
+@@ -469,7 +469,7 @@ static void Auto_in_out_feedstock(bool dir) // 0 returns material, 1 feeds
+ 
+       delay(1000);                                                                          // Wait for 1s
+       Clear_Title_Bar();                                                                    // Clear title bar
+-      DWIN_Draw_String(false, false, DWIN_FONT_HEAD, Color_Red, Color_Bg_Blue, 10, 4, str); // Draw title
++      DWIN_Draw_String(false, false, DWIN_FONT_HEAD, Color_White, Color_Bg_Blue, 10, 4, str); // Draw title
+ 
+       In_out_feedtock(length, FEEDING_DEF_SPEED, true);                        // Feed material
+       delay(1000);                                                             // Wait for 1s
+@@ -762,7 +762,7 @@ void DWIN_Draw_Z_Offset_Float(uint8_t size, uint16_t color, uint16_t bcolor, uin
+   }
+   else
+   {
+-    DWIN_Draw_String(false, true, font6x12, bcolor == Color_Bg_Black ? Color_Red : color, bcolor, x + 5, y, F("+")); // draw plus sign above
++    DWIN_Draw_String(false, true, font6x12, bcolor == Color_Bg_Black ? Color_White : color, bcolor, x + 5, y, F("+")); // draw plus sign above
+   }
+   if (value < 100)
+   {
+diff --git a/Marlin/src/lcd/dwin/creality/dwin.h b/Marlin/src/lcd/dwin/creality/dwin.h
+index 8096280..3697260 100644
+--- a/Marlin/src/lcd/dwin/creality/dwin.h
++++ b/Marlin/src/lcd/dwin/creality/dwin.h
+@@ -656,19 +656,19 @@ extern enum DC_language current_language;
+ 
+ // Color  FE29
+ #define Color_White       0xFFFF
+-#define Color_Yellow      0xFE29
+-#define Color_Blue        0x19FF
++#define Color_Yellow      0xC618
++#define Color_Blue        0xFFFF
+ #define Color_Red         0xF44F
+-#define Color_Bg_Window   0x31E8  // Popup background color
+-#define Color_Bg_Blue     0x1145  // Dark blue background color
++#define Color_Bg_Window   0x2945  // Popup background color
++#define Color_Bg_Blue     0x18C3  // Dark blue background color
+ #define Color_Bg_Black    0x0841  // Black background color
+ #define Color_Bg_Red      0xF00F  // Red background color
+-#define Popup_Text_Color  0xD6BA  // Popup font background color
+-#define Line_Color        0x3A6A  // Split line color
+-#define Rectangle_Color   0xFE29//0xEE2F  //Blue square cursor color
+-#define Percent_Color     0xFE29  // Percentage color
+-#define BarFill_Color     0x10E4  // Fill color of progress bar
+-#define Select_Color      0x33BB  // Selected color
++#define Popup_Text_Color  0xCE59  // Popup font background color
++#define Line_Color        0x2945  // Split line color
++#define Rectangle_Color   0xFFFF//0xEE2F  //Blue square cursor color
++#define Percent_Color     0xFFFF  // Percentage color
++#define BarFill_Color     0x8C71  // Fill color of progress bar
++#define Select_Color      0x630C  // Selected color
+ #define Button_Select_Color 0xFFFF  // Selected color
+ #define All_Black         0x0000  // Selected color
+ 
