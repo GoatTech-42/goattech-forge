@@ -17,6 +17,7 @@ static unsigned n_lines; static char L[FORGE_REPORT_MAX_LINES][FORGE_REPORT_WIDT
 static void dump(const char*tag){
   n_lines = forge_diag::build_report(L, FORGE_REPORT_MAX_LINES);
   char fn[64]; snprintf(fn,sizeof fn,"/tmp/forge-report-%s.txt",tag); FILE*f=fopen(fn,"w");
+  expect(f != nullptr,"report fixture output opens"); if(!f) return;
   for(unsigned i=0;i<n_lines;i++) fprintf(f,"%s\n",L[i]); fclose(f);
   printf("== %s (%u lines)\n",tag,n_lines); for(unsigned i=0;i<n_lines;i++) printf("%s\n",L[i]);
 }
@@ -39,6 +40,14 @@ int main(){
   card.mounted=true; g_fs.files["FORGDIA1.TMP"]="x"; g_fs.files["FORGDIA1.G"]="x"; recovery.enabled=true; planner.leveling_active=false; dump("sdfiles");
   bool stale=false,leveloff=false,plron=false; for(unsigned i=0;i<n_lines;i++){ if(strstr(L[i],"[STALE]")) stale=true; if(strstr(L[i],"leveling [off]")) leveloff=true; if(strstr(L[i],"plr [on]")) plron=true; }
   expect(stale,"stale tmp flagged"); expect(leveloff,"leveling off shown"); expect(plron,"plr on shown");
+  // Valid boundary values must retain their signs, precision and status suffixes.
+  thermalManager.hn=-40; thermalManager.hb=130; thermalManager.tn=300; thermalManager.tb=125;
+  probe.offset.z=-20; planner.settings.acceleration=10000; planner.extruder_advance_K[0]=10;
+  dump("bounds");
+  expect(strcmp(L[4],"nozzle -39/300 C [check]")==0,"negative sensor value and check suffix retained");
+  expect(strcmp(L[9],"z offset -20.00 mm")==0,"negative Z offset retained");
+  expect(strcmp(L[11],"acc 10000 LA K 10.000")==0,"maximum UI acceleration and M900 K retained");
+  for(unsigned i=0;i<n_lines;i++) expect(strlen(L[i])<=29,"actual panel width <=29 chars");
   // read-only: no SD writes, no job gating changes
   bool wrote=false; for(auto&c:g_fs.calls) if(c.rfind("openFileWrite",0)==0||c.rfind("removeFile",0)==0||c.rfind("rename",0)==0) wrote=true;
   expect(!wrote,"report performed no SD write/remove/rename");
