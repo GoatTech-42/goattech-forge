@@ -1,8 +1,12 @@
 # Forge report host harness
 
-Host build of the real `forge_diag::build_report` (test builds only, `-DFORGE_TEST_BUILD`) against
-stubbed printer state, plus a layout render. Run: `bash run-report.sh <patched Marlin dir>`.
+Host build of the real `forge_diag::build_report` with stubbed printer state.
+Run `bash run-report.sh <absolute patched Marlin directory>`.
 
-Scope: host logic and layout fit only. The render uses a monospace stand-in font and the firmware's
-coordinates (x=8, y=40+22*i, 8px cell, 272x480). It is not the panel's font8x16 bitmap, so it proves
-fit, not panel appearance. Nothing here is flash, runtime or panel verification.
+The configured panel is 240x320. The report uses font ID 0x01 (vendor table:
+8x16), 29 visible characters, x=4, y=34+17*i, up to 16 lines. Cell bounds end
+at x=236 and y=305. These are source-command geometry bounds, not glyph pixels.
+The panel font bank is not included here. No stand-in render is invoked.
+
+The harness checks report values and no SD write/remove/rename. Compilation,
+host logic and geometry do not establish panel appearance or printer clearance.
