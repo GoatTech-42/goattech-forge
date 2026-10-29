@@ -1,7 +1,7 @@
 # Building GoatTech firmware
 
 This repo vendors no Marlin source. `build.sh` is the whole pipeline: it
-clones the pinned upstream port, applies GoatTech branding and eight pinned
+clones the pinned upstream port, applies GoatTech branding and nine pinned
 Forge patches, and builds one binary for one board and build variant.
 
 ## Upstream and attribution
@@ -18,9 +18,9 @@ branding, docs, and this build script. Pinned commits:
 | C14 | `c14_sd` | `14c5165729684b7b87282f6d25c1239b6569d9e3` |
 
 The branding diff changes two lines in `Marlin/Configuration.h`
-(`STRING_CONFIG_H_AUTHOR` and `CUSTOM_MACHINE_NAME`). The eight patches add
+(`STRING_CONFIG_H_AUTHOR` and `CUSTOM_MACHINE_NAME`). The nine patches add
 the shaping menu, SD-close guard, diagnostics start guard, config restore,
-plate generator, diagnostics menu, version/report screen, and prime-height/M107
+plate generator, diagnostics menu, version/report screen, prime-height/M107, and the 240px test-report fit
 changes. `build.sh` pins the patch bytes and resulting source hashes and fails
 closed on a mismatch.
 
