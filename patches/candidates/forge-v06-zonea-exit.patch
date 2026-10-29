@@ -1,0 +1,24 @@
+diff --git a/Marlin/src/e3v3se/forge_diag.cpp b/Marlin/src/e3v3se/forge_diag.cpp
+index d775ecd..760a141 100644
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -201,6 +201,19 @@ static void emit_plate(const PlateParams &p) {
+       const float x0 = TOWERS[t][0] - TOWER_SIDE / 2, y0 = TOWERS[t][1] - TOWER_SIDE / 2;
+       set_retract(true, d);
+       move_z(z, 600);
++      // Towers 0 and 2 travel straight +Y to the next tower. Start and end their loop
++      // at the top-left corner so that travel leaves outward, not back along the wall
++      // just printed. No z-hop: retract-only travel is unchanged.
++      if (t == 0 || t == 2) {
++        const float y1 = y0 + TOWER_SIDE;
++        move_xy(x0, y1, 2400);
++        set_retract(false, d);
++        move_xy_e(x0 + TOWER_SIDE, y1, TOWER_SIDE, 2400, d);
++        move_xy_e(x0 + TOWER_SIDE, y0, TOWER_SIDE, 2400, d);
++        move_xy_e(x0, y0, TOWER_SIDE, 2400, d);
++        move_xy_e(x0, y1, TOWER_SIDE, 2400, d);
++        continue;
++      }
+       move_xy(x0, y0, 2400);
+       set_retract(false, d);
+       move_xy_e(x0 + TOWER_SIDE, y0, TOWER_SIDE, 2400, d);
