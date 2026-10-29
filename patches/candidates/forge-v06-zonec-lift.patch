@@ -1,0 +1,18 @@
+diff --git a/Marlin/src/e3v3se/forge_diag.cpp b/Marlin/src/e3v3se/forge_diag.cpp
+index 9bcb009..d775ecd 100644
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -249,8 +249,12 @@ static void emit_plate(const PlateParams &p) {
+       const float f = LADDER_SPEEDS[i] * 60.0f;
+       for (uint8_t ln = 0; ln < 3; ln++) {
+         const float y = LADDER_Y0 + i * 8.0f + ln * d.line_w;
+-        move_z(z, 600);
++        // Lift clear of the line just printed before the long return travel, so the
++        // nozzle does not skim its top; retract first to avoid ooze across the gap.
++        if (i > 0 || ln > 0) { set_retract(true, d); move_z(z + 0.6f, 600); }
+         move_xy(LADDER_X0, y, 2400);
++        move_z(z, 600);
++        set_retract(false, d);
+         move_xy_e(LADDER_X0 + LADDER_LEN, y, LADDER_LEN, f, d);
+       }
+     }
