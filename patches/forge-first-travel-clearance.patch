@@ -1,0 +1,19 @@
+--- a/Marlin/src/e3v3se/forge_diag.cpp
++++ b/Marlin/src/e3v3se/forge_diag.cpp
+@@ -200,8 +200,14 @@
+     for (uint8_t t = 0; t < 4; t++) {
+       const float x0 = TOWERS[t][0] - TOWER_SIDE / 2, y0 = TOWERS[t][1] - TOWER_SIDE / 2;
+       set_retract(true, d);
+-      move_z(z, 600);
+-      move_xy(x0, y0, 2400);
++      if (l == 0 && t == 0) {
++        move_xy(x0, y0, 2400); // Keep the post-prime 2mm clearance until the first destination.
++        move_z(z, 600);
++      }
++      else {
++        move_z(z, 600);
++        move_xy(x0, y0, 2400);
++      }
+       set_retract(false, d);
+       move_xy_e(x0 + TOWER_SIDE, y0, TOWER_SIDE, 2400, d);
+       move_xy_e(x0 + TOWER_SIDE, y0 + TOWER_SIDE, TOWER_SIDE, 2400, d);
