@@ -11,5 +11,5 @@ cp "$TREE/src/e3v3se/forge_diag.h"   src/e3v3se/forge_diag.h
 cmp -s "$TREE/src/e3v3se/forge_diag.cpp" src/e3v3se/forge_diag.cpp
 g++ -std=c++17 -O1 -include harness_common.h -I. main.cpp src/e3v3se/forge_diag.cpp -o harness-bin
 ./harness-bin /tmp/forge-plate
-for v in 40 20 80; do echo "== variant nozzle_x100=$v =="; python3 trajectory_check.py /tmp/forge-plate.$v.gcode; done
+for v in 40 20 80; do echo "== variant nozzle_x100=$v =="; python3 trajectory_check.py /tmp/forge-plate.$v.gcode; python3 check_initial_travel.py /tmp/forge-plate.$v.gcode; done
 echo "HARNESS SUITE OK"
