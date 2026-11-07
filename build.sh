@@ -51,13 +51,18 @@ EXPECTED_PATCH8_SHA256="6d80ad05843aef3bb798e07b8821208ec37439f2084096bdc20d54a7
 # Patch 9: fit the test-only report to the configured 240x320 panel.
 FORGE_PATCH9="patches/forge-v06-report-240.patch"
 EXPECTED_PATCH9_SHA256="45e2f527ff63bab8144efdfa2838aaf67ec2092ef07b1736b8c33b3482a4b516"
+# Patch 10: keep the post-prime 2mm Z clearance until the first tower destination
+# (fixes the confirmed initial bare-bed travel at layer height). Harness:
+# check_initial_travel.py fails on the pre-patch generator, passes with this patch.
+FORGE_PATCH10="patches/forge-first-travel-clearance.patch"
+EXPECTED_PATCH10_SHA256="6118768bfdf6a37a63edb0feb5ed89bb5f8a76cbc1a7d701ec7d064a4a425a16"
 # Full-content hashes of every file the patches touch, after applying the
 # full pinned patch chain to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
 EXPECTED_CARDREADER_SHA256="bc0e59731cf3a991001ce7caf3a562f2b413ec9c84d1166362faede2a5f0fa91"
 EXPECTED_FORGEDIAGH_SHA256="02c690725ecf8769c849b3e643efc894c71718a698bf39578b89e694de4fd9de"
-EXPECTED_FORGEDIAGCPP_SHA256="8c4c9557df0f71a073cfdb395b80d9bcee52157d85cf104a4654980d624bf3ea"
+EXPECTED_FORGEDIAGCPP_SHA256="be8986494f53d1ff486b4135f48ac808e8bfa649888027b79ad39f89ba0ba6e6"
 EXPECTED_DWINCPP_SHA256="8e0a4235493145dc4fbe1acf794b44f62363f0b2f3e7bfeb5ce96b67170ad426"
 EXPECTED_DWINH_SHA256="58141564db25946d6ab55fe0df923054aed3d91e9a2222429cc921a4c5af87fb"
 EXPECTED_DWINFONT_SHA256="e3b05e148b33b2877589c540ae764f347c74b5aa87fddb7723bb8ca3a55856d9"
@@ -251,6 +256,14 @@ if [ "$READY" -eq 0 ]; then
     || fail "Forge patch 9 content mismatch; refusing unverified patch"
   git -C "$SRC" apply --check "$PATCH_FILE9" || fail "Forge patch 9 does not apply cleanly"
   git -C "$SRC" apply "$PATCH_FILE9"
+
+  PATCH_FILE10="$SCRIPT_DIR/$FORGE_PATCH10"
+  [ -f "$PATCH_FILE10" ] || fail "Forge patch 10 missing: $PATCH_FILE10"
+  ACTUAL_PATCH10_SHA256=$(sha256sum "$PATCH_FILE10" | cut -d' ' -f1)
+  [ "$ACTUAL_PATCH10_SHA256" = "$EXPECTED_PATCH10_SHA256" ] \
+    || fail "Forge patch 10 content mismatch; refusing unverified patch"
+  git -C "$SRC" apply --check "$PATCH_FILE10" || fail "Forge patch 10 does not apply cleanly"
+  git -C "$SRC" apply "$PATCH_FILE10"
 
   verify_worktree_files || fail "post-patch worktree content mismatch; refusing to build an unverified tree"
 fi
