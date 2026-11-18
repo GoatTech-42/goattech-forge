@@ -1,0 +1,34 @@
+name: Patch chain source tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone pinned upstream and apply the Forge patch chain
+        run: |
+          set -euo pipefail
+          COMMIT=$(grep -m1 '^C13_COMMIT=' build.sh | cut -d'"' -f2)
+          git clone --quiet https://github.com/navaismo/Marlin_bugfix_2.1_E3V3SE.git "$RUNNER_TEMP/marlin"
+          git -C "$RUNNER_TEMP/marlin" checkout --quiet "$COMMIT"
+          for p in forge-dwin-input-shaping-menu forge-74-sdclose-guard forge-diag-startguard forge-config-restore forge-diag-generator forge-diag-menu; do
+            git -C "$RUNNER_TEMP/marlin" apply --check "$GITHUB_WORKSPACE/patches/$p.patch"
+            git -C "$RUNNER_TEMP/marlin" apply "$GITHUB_WORKSPACE/patches/$p.patch"
+          done
+      - name: Source-level tests (no binary needed)
+        run: |
+          set -euo pipefail
+          T="$RUNNER_TEMP/marlin"
+          bash tests/test-74-sdclose.sh "$T"
+          bash tests/test-config-restore.sh "$T"
+          bash tests/test-diag-startguard.sh "$T"
+          bash tests/test-upstream-fixes.sh "$T"
+          bash tests/test-diag-generator.sh "$T/Marlin"
