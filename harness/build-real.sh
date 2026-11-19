@@ -12,8 +12,20 @@ CXX="${CXX:-c++}"
 [ -f "$TREE/Marlin/src/module/planner.cpp" ] || { echo "no Marlin/src/module/planner.cpp under $TREE" >&2; exit 1; }
 mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"
 W="$(mktemp -d)"; trap 'rm -rf "$W"' EXIT
-cp -r "$TREE/Marlin" "$W/Marlin"
-cp "$HERE"/config/Configuration.h "$HERE"/config/Configuration_adv.h "$W/Marlin/"
+# Copy with -L so every symlink (the Marlin/ root, Configuration*.h, anything
+# else) becomes a regular file in the scratch tree; the overlay below can then
+# never write through a link into the caller's tree.
+cp -RL "$TREE/Marlin" "$W/Marlin"
+if [ -n "$(find "$W/Marlin" -type l -print -quit)" ]; then
+  echo "scratch copy of $TREE/Marlin still contains symlinks; refusing to overlay" >&2; exit 1
+fi
+for c in Configuration.h Configuration_adv.h; do
+  rm -f "$W/Marlin/$c"
+  cp "$HERE/config/$c" "$W/Marlin/$c"
+  if [ -e "$TREE/Marlin/$c" ] && [ "$W/Marlin/$c" -ef "$TREE/Marlin/$c" ]; then
+    echo "scratch $c is the caller's file; refusing to build" >&2; exit 1
+  fi
+done
 cd "$W"
 FLAGS="-std=gnu++17 -O1 -w -D__PLAT_LINUX__ -DHAL_PATH=src/HAL -IMarlin -IMarlin/src -IMarlin/src/HAL/LINUX/include -I$HERE/real"
 pids=""
