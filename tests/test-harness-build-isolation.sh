@@ -7,7 +7,8 @@
 #   - the build succeeds,
 #   - the files the symlinks point at are byte-identical before and after,
 #   - a caller's Marlin/Config.h does not replace the host config.
-# The fixtures are copies; the tree passed in is only read.
+# The fixtures are copies made with symlinks dereferenced, so the tree passed
+# in is only read, even when its Marlin/ is itself a symlink.
 # Host build only: no hardware validation.
 set -u
 TREE="${1:?usage: test-harness-build-isolation.sh <marlin-tree containing Marlin/>}"
@@ -19,7 +20,7 @@ chk(){ if [ "$1" = 0 ]; then echo "PASS: $2"; else echo "FAIL: $2"; fails=$((fai
 sums(){ sha256sum "$@" | awk '{print $1}'; }
 
 # Fixture A: <fixture>/tree/Marlin is a symlink to a real directory elsewhere.
-cp -r "$TREE/Marlin" "$F/real-marlin"
+cp -RL "$TREE/Marlin" "$F/real-marlin"
 mkdir "$F/tree-a"; ln -s "$F/real-marlin" "$F/tree-a/Marlin"
 before=$(sums "$F/real-marlin/Configuration.h" "$F/real-marlin/Configuration_adv.h")
 bash "$ROOT/harness/build-real.sh" "$F/tree-a" "$F/out-a" >"$F/a.log" 2>&1
@@ -33,7 +34,7 @@ chk $? "symlinked Marlin/ root: fixture still matches the input tree"
 
 # Fixture B: real Marlin/ dir whose Configuration*.h are symlinks to files elsewhere.
 mkdir -p "$F/tree-b" "$F/cfg"
-cp -r "$TREE/Marlin" "$F/tree-b/Marlin"
+cp -RL "$TREE/Marlin" "$F/tree-b/Marlin"
 for c in Configuration.h Configuration_adv.h; do
   mv "$F/tree-b/Marlin/$c" "$F/cfg/$c"; ln -s "$F/cfg/$c" "$F/tree-b/Marlin/$c"
 done
@@ -48,7 +49,7 @@ chk $? "symlinked Configuration*.h: links left in place"
 
 # Fixture C: the caller's tree has a Marlin/Config.h. Marlin's include chain
 # prefers Config.h over Configuration*.h, so it must not reach the scratch copy.
-mkdir "$F/tree-c"; cp -r "$TREE/Marlin" "$F/tree-c/Marlin"
+mkdir "$F/tree-c"; cp -RL "$TREE/Marlin" "$F/tree-c/Marlin"
 printf '#error "caller Marlin/Config.h reached the harness build"\n' >"$F/tree-c/Marlin/Config.h"
 before=$(sums "$F/tree-c/Marlin/Config.h")
 bash "$ROOT/harness/build-real.sh" "$F/tree-c" "$F/out-c" >"$F/c.log" 2>&1
