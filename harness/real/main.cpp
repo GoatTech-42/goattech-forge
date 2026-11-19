@@ -81,7 +81,14 @@ int main(int argc, char **argv) {
 
   // Travel moves: X, Y, diagonal back, Z lift
   harness_millis = 1000;
-  printf("queued %d\n", move(10, 0, 0, 0, 50) + move(10, 10, 0, 0, 50) + move(0, 0, 0, 0, 100) + move(0, 0, 0.2f, 0, 5));
+  // One statement per move: each call changes the planner position, and the
+  // operands of + have no guaranteed evaluation order.
+  int queued = 0;
+  queued += move(10, 0, 0, 0, 50);
+  queued += move(10, 10, 0, 0, 50);
+  queued += move(0, 0, 0, 0, 100);
+  queued += move(0, 0, 0.2f, 0, 5);
+  printf("queued %d\n", queued);
   drain("travel");
 
   // Printing move with a cold hotend: PREVENT_COLD_EXTRUSION must drop E
