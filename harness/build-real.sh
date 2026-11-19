@@ -19,6 +19,9 @@ cp -RL "$TREE/Marlin" "$W/Marlin"
 if [ -n "$(find "$W/Marlin" -type l -print -quit)" ]; then
   echo "scratch copy of $TREE/Marlin still contains symlinks; refusing to overlay" >&2; exit 1
 fi
+# Marlin's include chain uses Marlin/Config.h instead of Configuration*.h when
+# it exists, so drop any caller Config.h from the scratch copy (only there).
+rm -f "$W/Marlin/Config.h"
 for c in Configuration.h Configuration_adv.h; do
   rm -f "$W/Marlin/$c"
   cp "$HERE/config/$c" "$W/Marlin/$c"
