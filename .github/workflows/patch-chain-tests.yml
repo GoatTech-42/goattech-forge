@@ -34,3 +34,8 @@ jobs:
           bash tests/test-diag-generator.sh "$T/Marlin"
       - name: Real planner and temperature host harness (F1a, host simulation only)
         run: bash tests/test-harness-real-planner.sh "$RUNNER_TEMP/marlin"
+      - name: build-real.sh scratch isolation and spaced paths (host build only)
+        run: |
+          set -euo pipefail
+          bash tests/test-harness-build-isolation.sh "$RUNNER_TEMP/marlin"
+          bash tests/test-harness-spaced-path.sh "$RUNNER_TEMP/marlin"
