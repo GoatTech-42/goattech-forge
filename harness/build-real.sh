@@ -30,13 +30,16 @@ for c in Configuration.h Configuration_adv.h; do
   fi
 done
 cd "$W"
-FLAGS="-std=gnu++17 -O1 -w -D__PLAT_LINUX__ -DHAL_PATH=src/HAL -IMarlin -IMarlin/src -IMarlin/src/HAL/LINUX/include -I$HERE/real"
-pids=""
-for src in Marlin/src/module/planner.cpp Marlin/src/module/temperature.cpp "$HERE/real/stubs.cpp" "$HERE/real/main.cpp"; do
+# Flags and the compiler command are arrays so paths with spaces stay whole.
+read -r -a CXXCMD <<<"$CXX"
+FLAGS=(-std=gnu++17 -O1 -w -D__PLAT_LINUX__ -DHAL_PATH=src/HAL
+  -I"$W/Marlin" -I"$W/Marlin/src" -I"$W/Marlin/src/HAL/LINUX/include" -I"$HERE/real")
+pids=()
+for src in "$W/Marlin/src/module/planner.cpp" "$W/Marlin/src/module/temperature.cpp" "$HERE/real/stubs.cpp" "$HERE/real/main.cpp"; do
   o="$W/$(basename "$src" .cpp).o"
-  ( $CXX $FLAGS -c "$src" -o "$o" && echo "compiled $(basename "$src")" ) & pids="$pids $!"
+  ( "${CXXCMD[@]}" "${FLAGS[@]}" -c "$src" -o "$o" && echo "compiled $(basename "$src")" ) & pids+=("$!")
 done
-rc=0; for p in $pids; do wait "$p" || rc=1; done
+rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done
 [ "$rc" = 0 ] || { echo "compile failed" >&2; exit 1; }
-$CXX "$W"/main.o "$W"/stubs.o "$W"/planner.o "$W"/temperature.o -o "$OUT/harness-real" -lm
+"${CXXCMD[@]}" "$W/main.o" "$W/stubs.o" "$W/planner.o" "$W/temperature.o" -o "$OUT/harness-real" -lm
 echo "linked $OUT/harness-real"
