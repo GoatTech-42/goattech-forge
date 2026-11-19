@@ -1,0 +1,8 @@
+sha256=8ae08eda19b9bfee0603899a94c25620275fab559217a95d02a66303d45e747f
+bytes=208239
+lines=7822
+moves=7791
+x_range=0.00..185.00
+y_range=5.00..200.00
+z_range=0.20..37.00
+e_max=1756.800
