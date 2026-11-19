@@ -38,7 +38,10 @@ def main(path, totals_only=False):
             continue
         # Command word first, then letter+number words. Numbers have no
         # exponent ("X10E2" is X10 then E2) and need no space between words.
-        head = re.match(r'([A-Za-z])(\d+)', line)
+        head = re.match(r'([A-Za-z])(\d+)(?![\d.])', line)
+        if not head:   # no command number, or a fractional one such as G1.5
+            print('unsupported line: malformed command', file=sys.stderr)
+            sys.exit(3)
         cmd = head.group(1).upper() + str(int(head.group(2)))
         if cmd == 'M117':   # free text, ignored like the replay does
             continue

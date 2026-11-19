@@ -106,6 +106,10 @@ printf 'G90\nG X10 F600\n' >"$OUT/nonum.gcode"
 "$H" --gcode "$OUT/nonum.gcode" >"$OUT/nonum.txt"; rc=$?
 [ $rc = 3 ]; chk $? "command letter with no number fails closed with exit 3 (got $rc)"
 grep -q 'moves=0 ' "$OUT/nonum.txt"; chk $? "G with no number is not replayed as G0"
+python3 "$REF" "$OUT/frac.gcode" >/dev/null 2>&1; rc=$?
+[ $rc = 3 ]; chk $? "model rejects G1.5 too, exit 3 (got $rc)"
+python3 "$REF" "$OUT/nonum.gcode" >/dev/null 2>&1; rc=$?
+[ $rc = 3 ]; chk $? "model rejects a command letter with no number, exit 3 (got $rc)"
 printf 'G90\nG01 X10 F600\nG1 X20 F600\n' >"$OUT/zero.gcode"
 "$H" --gcode "$OUT/zero.gcode" --blocks >"$OUT/zero.txt"; chk $? "G01 replays"
 python3 "$REF" "$OUT/zero.gcode" >"$OUT/zero.ref"
