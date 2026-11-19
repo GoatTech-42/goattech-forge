@@ -97,6 +97,22 @@ grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a comment longer than the read buffe
 "$H" --gcode "$OUT" >"$OUT/dir.txt" 2>&1; rc=$?
 [ $rc != 0 ]; chk $? "a read error is not reported as success (exit $rc)"
 
+# 4b. command numbers are read whole (CodeRabbit round 2): no truncation, no missing number
+printf 'G90\nG1.5 X10 F600\n' >"$OUT/frac.gcode"
+"$H" --gcode "$OUT/frac.gcode" >"$OUT/frac.txt"; rc=$?
+[ $rc = 3 ]; chk $? "fractional command G1.5 fails closed with exit 3 (got $rc)"
+grep -q 'moves=0 ' "$OUT/frac.txt"; chk $? "G1.5 is not replayed as a G1 move"
+printf 'G90\nG X10 F600\n' >"$OUT/nonum.gcode"
+"$H" --gcode "$OUT/nonum.gcode" >"$OUT/nonum.txt"; rc=$?
+[ $rc = 3 ]; chk $? "command letter with no number fails closed with exit 3 (got $rc)"
+grep -q 'moves=0 ' "$OUT/nonum.txt"; chk $? "G with no number is not replayed as G0"
+printf 'G90\nG01 X10 F600\nG1 X20 F600\n' >"$OUT/zero.gcode"
+"$H" --gcode "$OUT/zero.gcode" --blocks >"$OUT/zero.txt"; chk $? "G01 replays"
+python3 "$REF" "$OUT/zero.gcode" >"$OUT/zero.ref"
+diff <(grep '^rblock ' "$OUT/zero.txt" | sed 's/ nominal_speed=.*//') <(grep '^rblock ' "$OUT/zero.ref" | sed 's/ nominal_speed=.*//') >/dev/null
+chk $? "G01 and G1 give the same blocks in harness and model"
+grep -q 'moves=2 ' "$OUT/zero.txt"; chk $? "G01 counts as a move (2 moves)"
+
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]

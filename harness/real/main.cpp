@@ -125,11 +125,16 @@ static float parse_decimal(const char *p, const char **end) {
 static bool parse_command(const std::string &line, char *cmd, int *num, size_t *rest) {
   size_t i = 0;
   while (i < line.size() && isspace((unsigned char)line[i])) ++i;
-  if (i >= line.size()) return false;
+  if (i >= line.size()) { *cmd = 0; return true; }
   *cmd = (char)toupper((unsigned char)line[i++]);
-  const char *end = nullptr;
-  *num = (int)parse_decimal(line.c_str() + i, &end);
-  *rest = end - line.c_str();
+  // The command number is a whole integer: a missing number or a fraction
+  // ("G1.5", "G X10") is not a command we know, so it must not become G1 or G0.
+  const size_t start = i;
+  long n = 0;
+  while (i < line.size() && isdigit((unsigned char)line[i])) { n = n * 10 + (line[i] - '0'); if (n > 9999) return false; ++i; }
+  if (i == start || (i < line.size() && line[i] == '.')) return false;
+  *num = (int)n;
+  *rest = i;
   return true;
 }
 
@@ -169,7 +174,12 @@ static int replay_gcode(const char *path, bool print_blocks) {
     const size_t semi = line.find(';');
     if (semi != std::string::npos) line.erase(semi);
     char cmd; int num; size_t rest; float v[26]; bool has[26];
-    if (!parse_command(line, &cmd, &num, &rest)) continue;
+    if (!parse_command(line, &cmd, &num, &rest)) {
+      printf("unsupported line %ld: malformed command\n", lineno);
+      ++unsupported;
+      continue;
+    }
+    if (cmd == 0) continue;   // blank line
     // M117 carries free text, not words: ignore it before any word parsing.
     if (cmd == 'M' && num == 117) { ++r.ignored; continue; }
     parse_words(line, rest, v, has);

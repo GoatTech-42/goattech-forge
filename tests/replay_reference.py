@@ -39,7 +39,7 @@ def main(path, totals_only=False):
         # Command word first, then letter+number words. Numbers have no
         # exponent ("X10E2" is X10 then E2) and need no space between words.
         head = re.match(r'([A-Za-z])(\d+)', line)
-        cmd = (head.group(1) + head.group(2)).upper()
+        cmd = head.group(1).upper() + str(int(head.group(2)))
         if cmd == 'M117':   # free text, ignored like the replay does
             continue
         w = {}
