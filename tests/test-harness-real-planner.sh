@@ -18,6 +18,10 @@ bash "$ROOT/harness/build-real.sh" "$TREE" "$OUT" >"$OUT/build.log" 2>&1
 rc=$?; [ $rc = 0 ] || sed 's/^/  build: /' "$OUT/build.log"
 chk $rc "real planner.o + temperature.o link into a host executable"
 [ $rc = 0 ] || { echo "RESULT: $fails failure(s)"; exit 1; }
+for m in planner.cpp temperature.cpp; do
+  grep -qxF "host config marker present in $m" "$OUT/build.log"
+  chk $? "$m compiled with harness/config (host config marker found)"
+done
 
 # Expected output for the Ender 3 V3 SE host config (80/80/400/715.12 steps/mm).
 EXPECT='config steps_per_mm=80.00,80.00,400.00,715.12

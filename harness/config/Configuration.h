@@ -21,6 +21,10 @@
  */
 #pragma once
 
+// Forge host harness marker. harness/build-real.sh and harness/real/*.cpp
+// require it, so a build that picked up any other Configuration.h fails.
+#define FORGE_HOST_HARNESS_CONFIG 1
+
 /**
  * Configuration.h
  *

@@ -13,6 +13,11 @@
 #include "module/temperature.h"
 #include "harness_hooks.h"
 
+// The host config in harness/config must be the one compiled, never the tree's.
+#if !defined(FORGE_HOST_HARNESS_CONFIG) || !defined(FORGE_HOST_HARNESS_CONFIG_ADV)
+  #error "harness-real must be built against harness/config/Configuration*.h"
+#endif
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>

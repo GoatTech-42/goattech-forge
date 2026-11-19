@@ -41,5 +41,12 @@ for src in "$W/Marlin/src/module/planner.cpp" "$W/Marlin/src/module/temperature.
 done
 rc=0; for p in "${pids[@]}"; do wait "$p" || rc=1; done
 [ "$rc" = 0 ] || { echo "compile failed" >&2; exit 1; }
+# main.cpp and stubs.cpp #error without the host config markers; check the two
+# Marlin modules too by preprocessing them with the same flags.
+for src in "$W/Marlin/src/module/planner.cpp" "$W/Marlin/src/module/temperature.cpp"; do
+  m="$("${CXXCMD[@]}" "${FLAGS[@]}" -dM -E "$src" | grep -cE '^#define FORGE_HOST_HARNESS_CONFIG(_ADV)? 1$' || true)"
+  [ "$m" = 2 ] || { echo "$(basename "$src") was not preprocessed with harness/config" >&2; exit 1; }
+  echo "host config marker present in $(basename "$src")"
+done
 "${CXXCMD[@]}" "$W/main.o" "$W/stubs.o" "$W/planner.o" "$W/temperature.o" -o "$OUT/harness-real" -lm
 echo "linked $OUT/harness-real"
