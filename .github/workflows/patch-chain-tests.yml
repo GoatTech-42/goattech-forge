@@ -34,6 +34,8 @@ jobs:
           bash tests/test-diag-generator.sh "$T/Marlin"
       - name: Real planner and temperature host harness (F1a, host simulation only)
         run: bash tests/test-harness-real-planner.sh "$RUNNER_TEMP/marlin"
+      - name: G-code replay through the real planner (F1b, host simulation only)
+        run: bash tests/test-harness-gcode-replay.sh "$RUNNER_TEMP/marlin"
       - name: build-real.sh scratch isolation and spaced paths (host build only)
         run: |
           set -euo pipefail

@@ -2,9 +2,13 @@
 // (compiled from the patched tree by harness/build-real.sh) and prints a
 // deterministic report for tests/test-harness-real-planner.sh to check.
 //
-// Usage: harness-real [--steps-x N]
+// Usage: harness-real [--steps-x N] [--gcode FILE [--blocks]]
 //   --steps-x N  override X steps/mm after loading the config defaults
 //                (used by the test's negative check).
+//   --gcode FILE replay a G-code file through the real Planner instead of the
+//                built-in moves (F1b). Only linear moves and a short list of
+//                no-motion commands are accepted; anything else fails closed.
+//   --blocks     with --gcode, print one line per block the planner produced.
 //
 // Host simulation only. Nothing here touches or validates real hardware.
 
@@ -21,6 +25,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cctype>
+#include <cmath>
+#include <string>
 
 static const float steps_default[] = DEFAULT_AXIS_STEPS_PER_UNIT;
 static const float feed_default[] = DEFAULT_MAX_FEEDRATE;
@@ -68,11 +75,139 @@ static bool move(const float x, const float y, const float z, const float e, con
   return planner.buffer_line(p, fr, 0);
 }
 
+
+// ---- F1(b): G-code replay through the real Planner ----------------------
+// Moves are streamed: a block is popped (as the stepper would) only when the
+// planner queue is full, so lookahead sees a realistic queue. There is no
+// stepper ISR and time does not advance, so this replays geometry, step
+// counts, speed limits and junction rates, not wall-clock timing.
+
+struct Replay {
+  long blocks = 0, rejected = 0, moves = 0, ignored = 0, rate_violations = 0;
+  unsigned long steps[4] = {0, 0, 0, 0};
+  double path_mm = 0;
+  bool print_blocks = false;
+};
+
+static void pop_block(Replay &r) {
+  for (int guard = 0; guard < 100000; ++guard) {
+    block_t * const b = planner.get_current_block();
+    if (!b) continue;
+    if (b->initial_rate > b->nominal_rate || b->final_rate > b->nominal_rate) ++r.rate_violations;
+    r.steps[0] += b->steps.a; r.steps[1] += b->steps.b; r.steps[2] += b->steps.c; r.steps[3] += b->steps.e;
+    r.path_mm += b->millimeters;
+    if (r.print_blocks)
+      printf("rblock %ld steps=%lu,%lu,%lu,%lu mm=%.3f nominal_speed=%.2f\n", r.blocks,
+        (unsigned long)b->steps.a, (unsigned long)b->steps.b, (unsigned long)b->steps.c, (unsigned long)b->steps.e,
+        b->millimeters, b->nominal_speed);
+    ++r.blocks;
+    planner.release_current_block();
+    return;
+  }
+  printf("error: planner never delivered a block\n"); exit(2);
+}
+
+static bool parse_words(const std::string &line, char *cmd, int *num, float val[26], bool has[26]) {
+  size_t i = 0;
+  while (i < line.size() && isspace((unsigned char)line[i])) ++i;
+  if (i >= line.size()) return false;
+  *cmd = (char)toupper((unsigned char)line[i++]);
+  char *end = nullptr;
+  *num = (int)strtol(line.c_str() + i, &end, 10);
+  i = end - line.c_str();
+  for (int k = 0; k < 26; ++k) has[k] = false;
+  while (i < line.size()) {
+    if (isspace((unsigned char)line[i])) { ++i; continue; }
+    const char w = (char)toupper((unsigned char)line[i++]);
+    if (!isalpha((unsigned char)w)) { printf("error: bad token near '%c'\n", w); exit(3); }
+    val[w - 'A'] = strtof(line.c_str() + i, &end);
+    has[w - 'A'] = true;
+    i = end - line.c_str();
+  }
+  return true;
+}
+
+static int replay_gcode(const char *path, bool print_blocks) {
+  FILE *f = fopen(path, "rb");
+  if (!f) { fprintf(stderr, "cannot open %s\n", path); return 66; }
+  Replay r; r.print_blocks = print_blocks;
+  thermalManager.allow_cold_extrude = true;   // no heater simulation: hotend treated as hot
+  harness_millis = 1000;
+  xyze_pos_t pos{0}; planner.set_position_mm(pos);
+  // Marlin's relative-mode state (gcode.h): G90/G91 replace the whole state,
+  // including any M82/M83 choice, so G91 makes E relative and G90 makes it
+  // absolute again; M82/M83 then override E until the next G90/G91.
+  bool rel_xyz = false, rel_e = false; int e_mode = 0;   // e_mode: 0 follow G90/G91, 1 M82, 2 M83
+  float feed = 25;                            // mm/s until the file sets F
+  long lineno = 0, unsupported = 0;
+  char buf[1024];
+  while (fgets(buf, sizeof buf, f)) {
+    ++lineno;
+    std::string line(buf);
+    const size_t semi = line.find(';');
+    if (semi != std::string::npos) line.erase(semi);
+    char cmd; int num; float v[26]; bool has[26];
+    if (!parse_words(line, &cmd, &num, v, has)) continue;
+    const int code = cmd * 1000 + num;   // e.g. 'G'*1000 + 1
+    if (cmd == 'G' && (num == 0 || num == 1)) {
+      if (has['F' - 'A']) feed = v['F' - 'A'] / 60.0f;
+      const bool e_relative = e_mode == 2 ? true : e_mode == 1 ? false : rel_e;
+      xyze_pos_t t = pos;
+      if (has['X' - 'A']) t.x = rel_xyz ? pos.x + v['X' - 'A'] : v['X' - 'A'];
+      if (has['Y' - 'A']) t.y = rel_xyz ? pos.y + v['Y' - 'A'] : v['Y' - 'A'];
+      if (has['Z' - 'A']) t.z = rel_xyz ? pos.z + v['Z' - 'A'] : v['Z' - 'A'];
+      if (has['E' - 'A']) t.e = e_relative ? pos.e + v['E' - 'A'] : v['E' - 'A'];
+      ++r.moves;
+      while (planner.is_full()) pop_block(r);
+      if (!planner.buffer_line(t, feed, 0)) ++r.rejected;
+      pos = t;
+    }
+    else if (code == 'G' * 1000 + 90) { rel_xyz = rel_e = false; e_mode = 0; }
+    else if (code == 'G' * 1000 + 91) { rel_xyz = rel_e = true; e_mode = 0; }
+    else if (code == 'M' * 1000 + 82) e_mode = 1;
+    else if (code == 'M' * 1000 + 83) e_mode = 2;
+    else if (code == 'G' * 1000 + 21) { /* millimetres: already the unit */ }
+    else if (code == 'G' * 1000 + 28 || code == 'G' * 1000 + 92) {
+      // Positions change without motion: let queued blocks finish first.
+      while (planner.has_blocks_queued()) pop_block(r);
+      if (num == 28) { pos.x = pos.y = pos.z = 0; }
+      else {
+        if (has['X' - 'A']) pos.x = v['X' - 'A'];
+        if (has['Y' - 'A']) pos.y = v['Y' - 'A'];
+        if (has['Z' - 'A']) pos.z = v['Z' - 'A'];
+        if (has['E' - 'A']) pos.e = v['E' - 'A'];
+      }
+      planner.set_position_mm(pos);
+    }
+    else if (code == 'M' * 1000 + 400) { while (planner.has_blocks_queued()) pop_block(r); }   // finish moves
+    else if (cmd == 'G' && num == 4) ++r.ignored;
+    else if (cmd == 'M' && (num == 104 || num == 109 || num == 140 || num == 190 || num == 106 || num == 107 ||
+                            num == 84 || num == 117 || num == 73 || num == 105)) ++r.ignored;
+    else {
+      // Anything else could change motion (arcs, G20, M203/M204/M205, M220/M221 ...).
+      printf("unsupported line %ld: %c%d\n", lineno, cmd, num);
+      ++unsupported;
+    }
+  }
+  fclose(f);
+  while (planner.has_blocks_queued()) pop_block(r);
+  const char *base = strrchr(path, '/'); base = base ? base + 1 : path;
+  printf("replay file=%s lines=%ld moves=%ld rejected=%ld blocks=%ld ignored=%ld unsupported=%ld\n",
+    base, lineno, r.moves, r.rejected, r.blocks, r.ignored, unsupported);
+  printf("replay steps=%lu,%lu,%lu,%lu\n", r.steps[0], r.steps[1], r.steps[2], r.steps[3]);
+  printf("replay path_mm=%.3f\n", r.path_mm);
+  printf("replay rate_violations=%ld\n", r.rate_violations);
+  return unsupported ? 3 : (r.rate_violations ? 4 : 0);
+}
+
 int main(int argc, char **argv) {
   float steps_x = 0;
+  const char *gcode = nullptr; bool print_blocks = false;
   for (int i = 1; i < argc; ++i) {
     if (!strcmp(argv[i], "--steps-x") && i + 1 < argc) steps_x = atof(argv[++i]);
-    else { fprintf(stderr, "usage: %s [--steps-x N]\n", argv[0]); return 64; }
+    else if (!strcmp(argv[i], "--gcode") && i + 1 < argc) gcode = argv[++i];
+    else if (!strcmp(argv[i], "--blocks")) print_blocks = true;
+    else { fprintf(stderr, "usage: %s [--steps-x N] [--gcode FILE [--blocks]]\n", argv[0]); return 64; }
   }
 
   planner.init();
@@ -81,6 +216,8 @@ int main(int argc, char **argv) {
   printf("config steps_per_mm=%.2f,%.2f,%.2f,%.2f\n",
     planner.settings.axis_steps_per_mm[X_AXIS], planner.settings.axis_steps_per_mm[Y_AXIS],
     planner.settings.axis_steps_per_mm[Z_AXIS], planner.settings.axis_steps_per_mm[E_AXIS]);
+
+  if (gcode) return replay_gcode(gcode, print_blocks);
 
   xyze_pos_t origin{0}; planner.set_position_mm(origin);
 
