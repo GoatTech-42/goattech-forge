@@ -107,24 +107,44 @@ static void pop_block(Replay &r) {
   printf("error: planner never delivered a block\n"); exit(2);
 }
 
-static bool parse_words(const std::string &line, char *cmd, int *num, float val[26], bool has[26]) {
+// Decimal number as Marlin's parser reads it: optional sign, digits, optional
+// fraction. No exponent, so "X10E2" is X10 followed by an E word, not 1000.
+static float parse_decimal(const char *p, const char **end) {
+  const char *q = p;
+  if (*q == '+' || *q == '-') ++q;
+  const char *digits = q;
+  while (isdigit((unsigned char)*q)) ++q;
+  if (*q == '.') { ++q; while (isdigit((unsigned char)*q)) ++q; }
+  if (q == digits || (q == digits + 1 && *digits == '.')) { *end = p; return 0; }   // no number
+  const std::string num(p, q - p);
+  *end = q;
+  return strtof(num.c_str(), nullptr);
+}
+
+// First word of the line ("G1", "M117") into cmd/num; returns the rest.
+static bool parse_command(const std::string &line, char *cmd, int *num, size_t *rest) {
   size_t i = 0;
   while (i < line.size() && isspace((unsigned char)line[i])) ++i;
   if (i >= line.size()) return false;
   *cmd = (char)toupper((unsigned char)line[i++]);
-  char *end = nullptr;
-  *num = (int)strtol(line.c_str() + i, &end, 10);
-  i = end - line.c_str();
+  const char *end = nullptr;
+  *num = (int)parse_decimal(line.c_str() + i, &end);
+  *rest = end - line.c_str();
+  return true;
+}
+
+static void parse_words(const std::string &line, size_t i, float val[26], bool has[26]) {
   for (int k = 0; k < 26; ++k) has[k] = false;
   while (i < line.size()) {
     if (isspace((unsigned char)line[i])) { ++i; continue; }
     const char w = (char)toupper((unsigned char)line[i++]);
     if (!isalpha((unsigned char)w)) { printf("error: bad token near '%c'\n", w); exit(3); }
-    val[w - 'A'] = strtof(line.c_str() + i, &end);
+    while (i < line.size() && isspace((unsigned char)line[i])) ++i;
+    const char *end = nullptr;
+    val[w - 'A'] = parse_decimal(line.c_str() + i, &end);
     has[w - 'A'] = true;
     i = end - line.c_str();
   }
-  return true;
 }
 
 static int replay_gcode(const char *path, bool print_blocks) {
@@ -140,14 +160,19 @@ static int replay_gcode(const char *path, bool print_blocks) {
   bool rel_xyz = false, rel_e = false; int e_mode = 0;   // e_mode: 0 follow G90/G91, 1 M82, 2 M83
   float feed = 25;                            // mm/s until the file sets F
   long lineno = 0, unsupported = 0;
-  char buf[1024];
-  while (fgets(buf, sizeof buf, f)) {
+  for (;;) {
+    // Whole physical line, any length, so a comment can never be cut in two.
+    std::string line; int ch;
+    while ((ch = getc(f)) != EOF && ch != '\n') line.push_back((char)ch);
+    if (ch == EOF && line.empty()) break;
     ++lineno;
-    std::string line(buf);
     const size_t semi = line.find(';');
     if (semi != std::string::npos) line.erase(semi);
-    char cmd; int num; float v[26]; bool has[26];
-    if (!parse_words(line, &cmd, &num, v, has)) continue;
+    char cmd; int num; size_t rest; float v[26]; bool has[26];
+    if (!parse_command(line, &cmd, &num, &rest)) continue;
+    // M117 carries free text, not words: ignore it before any word parsing.
+    if (cmd == 'M' && num == 117) { ++r.ignored; continue; }
+    parse_words(line, rest, v, has);
     const int code = cmd * 1000 + num;   // e.g. 'G'*1000 + 1
     if (cmd == 'G' && (num == 0 || num == 1)) {
       if (has['F' - 'A']) feed = v['F' - 'A'] / 60.0f;
@@ -182,13 +207,14 @@ static int replay_gcode(const char *path, bool print_blocks) {
     else if (code == 'M' * 1000 + 400) { while (planner.has_blocks_queued()) pop_block(r); }   // finish moves
     else if (cmd == 'G' && num == 4) ++r.ignored;
     else if (cmd == 'M' && (num == 104 || num == 109 || num == 140 || num == 190 || num == 106 || num == 107 ||
-                            num == 84 || num == 117 || num == 73 || num == 105)) ++r.ignored;
+                            num == 84 || num == 73 || num == 105)) ++r.ignored;
     else {
       // Anything else could change motion (arcs, G20, M203/M204/M205, M220/M221 ...).
       printf("unsupported line %ld: %c%d\n", lineno, cmd, num);
       ++unsupported;
     }
   }
+  if (ferror(f)) { fprintf(stderr, "read error on %s\n", path); fclose(f); return 74; }
   fclose(f);
   while (planner.has_blocks_queued()) pop_block(r);
   const char *base = strrchr(path, '/'); base = base ? base + 1 : path;
@@ -197,7 +223,10 @@ static int replay_gcode(const char *path, bool print_blocks) {
   printf("replay steps=%lu,%lu,%lu,%lu\n", r.steps[0], r.steps[1], r.steps[2], r.steps[3]);
   printf("replay path_mm=%.3f\n", r.path_mm);
   printf("replay rate_violations=%ld\n", r.rate_violations);
-  return unsupported ? 3 : (r.rate_violations ? 4 : 0);
+  // rate_violations is reported, not an exit failure: the planner's own
+  // minimum-segment-time slowdown can leave a short block with a junction rate
+  // above its slowed nominal rate, and the tests assert the count where it matters.
+  return unsupported ? 3 : 0;
 }
 
 int main(int argc, char **argv) {

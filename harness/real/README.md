@@ -53,7 +53,8 @@ Runtime (`stubs.cpp`, `main.cpp`):
 `harness-real --gcode FILE [--blocks]` replays a G-code file through the real
 `Planner::buffer_line` instead of the built-in moves and prints the number of
 blocks, total steps per axis, total block length and the count of blocks whose
-initial or final rate exceeds their nominal rate (`--blocks` adds one line per
+initial or final rate exceeds their nominal rate (reported, not a failure: the
+planner's minimum-segment-time slowdown can cause it on very short blocks) (`--blocks` adds one line per
 block). It follows Marlin's relative-mode rules (G90/G91 replace the whole
 state, so G91 makes E relative even after M82 and G90 makes it absolute even
 after M83; M82/M83 override E after that) and treats G28 as a position reset to
@@ -61,7 +62,10 @@ after M83; M82/M83 override E after that) and treats G28 as a position reset to
 lookahead sees a realistic queue. `G0`/`G1`, `G28`, `G90`/`G91`, `M82`/`M83`,
 `G92`, `G21`, `M400` and a short list of no-motion commands (`G4`, `M104`,
 `M109`, `M140`, `M190`, `M106`, `M107`, `M84`, `M105`, `M117`, `M73`) are
-accepted. Anything else (arcs, `G20`, `M203`-`M205`, `M220`/`M221`, ...) is
+accepted. Numbers have no exponent (`X10E2` is X10 then E2), lines of any length
+are read whole, `M117` text is ignored unparsed, and a read error exits 74.
+A segment below `MIN_STEPS_PER_SEGMENT` is deferred by the planner, and the
+model does the same. Anything else (arcs, `G20`, `M203`-`M205`, `M220`/`M221`, ...) is
 named with its line number and the replay exits 3, so a file the replay cannot
 model is never reported as checked. The hotend is treated as hot (no heater
 simulation), and time does not advance.

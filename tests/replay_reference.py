@@ -15,6 +15,7 @@ def f32(x):  # round to IEEE single, as the firmware's float positions are
 
 SPM = [f32(v) for v in (80.0, 80.0, 400.0, 715.12)]
 MAXF = [500.0, 500.0, 20.0, 30.0]
+MIN_STEPS = 4   # MIN_STEPS_PER_SEGMENT in harness/config/Configuration_adv.h
 
 def lround(x):  # round half away from zero, like Marlin's LROUND
     return int(math.copysign(math.floor(abs(x) + 0.5), x))
@@ -35,12 +36,15 @@ def main(path, totals_only=False):
         line = raw.split(';', 1)[0].strip()
         if not line:
             continue
-        parts = line.split()
-        cmd = parts[0].upper()
+        # Command word first, then letter+number words. Numbers have no
+        # exponent ("X10E2" is X10 then E2) and need no space between words.
+        head = re.match(r'([A-Za-z])(\d+)', line)
+        cmd = (head.group(1) + head.group(2)).upper()
+        if cmd == 'M117':   # free text, ignored like the replay does
+            continue
         w = {}
-        for p in parts[1:]:
-            m = re.match(r'^([A-Za-z])(-?[0-9.]+)$', p)
-            w[m.group(1).upper()] = float(m.group(2))
+        for m in re.finditer(r'([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))?', line[head.end():]):
+            w[m.group(1).upper()] = float(m.group(2) or 0.0)
         if cmd in ('G0', 'G1'):
             if 'F' in w:
                 feed = f32(w['F'] / 60.0)
@@ -53,10 +57,12 @@ def main(path, totals_only=False):
             tsteps = [lround(f32(t[i] * SPM[i])) for i in range(4)]
             d = [tsteps[i] - pos_steps[i] for i in range(4)]
             pos = t
-            pos_steps = tsteps
-            if not any(d):
+            # The planner drops a segment with fewer than MIN_STEPS_PER_SEGMENT
+            # step events and keeps its old step baseline for the next move.
+            if max(abs(x) for x in d) < MIN_STEPS:
                 dropped += 1
                 continue
+            pos_steps = tsteps
             dmm = [abs(d[i]) / SPM[i] for i in range(4)]
             xyz = math.sqrt(dmm[0] ** 2 + dmm[1] ** 2 + dmm[2] ** 2)
             mm = xyz if any(d[:3]) else dmm[3]
@@ -79,7 +85,7 @@ def main(path, totals_only=False):
             for i, a in enumerate('XYZE'):
                 if a in w:
                     pos[i] = f32(w[a]); pos_steps[i] = lround(f32(pos[i] * SPM[i]))
-    print('replay moves=%d zero_step=%d blocks=%d' % (moves, dropped, blocks))
+    print('replay moves=%d short_or_zero=%d blocks=%d' % (moves, dropped, blocks))
     print('replay steps=%d,%d,%d,%d' % tuple(tot))
     print('replay path_mm=%.3f' % path_mm)
 

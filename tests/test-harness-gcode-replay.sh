@@ -77,6 +77,26 @@ n=$(diff <(grep '^rblock ' "$OUT/neg2.txt") <(grep '^rblock ' "$OUT/fix.ref") | 
 [ $rc = 3 ]; chk $? "unsupported G2 arc makes the replay exit 3 (got $rc)"
 grep -qx 'unsupported line 5: G2' "$OUT/neg3.txt"; chk $? "unsupported command is named with its line number"
 
+# --- 4. parser edge cases (CodeRabbit review of F1b): same reading in harness and model
+# Speeds are not compared here: the 4-step segment is shorter than the minimum
+# segment time, so the planner's own slowdown applies.
+"$H" --gcode "$FIX/replay-parse.gcode" --blocks >"$OUT/parse.txt"; chk $? "parser edge-case fixture replays (exit 0)"
+grep -qx 'replay file=replay-parse.gcode lines=15 moves=5 rejected=0 blocks=4 ignored=1 unsupported=0' "$OUT/parse.txt"; chk $? "M117 text is ignored, not parsed (5 moves, 4 blocks, 1 ignored)"
+python3 "$REF" "$FIX/replay-parse.gcode" >"$OUT/parse.ref"; chk $? "model reads the parser edge-case fixture"
+diff <(grep '^rblock ' "$OUT/parse.txt" | sed 's/ nominal_speed=.*//') <(grep '^rblock ' "$OUT/parse.ref" | sed 's/ nominal_speed=.*//') >"$OUT/parse.diff"
+chk $? "X10E2, G1X20, M117 text and a 1-step deferral give the same blocks in harness and model"
+sed 's/^/  /' "$OUT/parse.diff" | head -10
+grep -c '^rblock ' "$OUT/parse.txt" | grep -qx 4; chk $? "parser fixture produced 4 blocks (5 moves, one 1-step move deferred)"
+grep -q '^rblock 0 steps=800,0,0,1430 ' "$OUT/parse.txt"; chk $? "X10E2 is X=10 with E=2 (800 X steps, 1430 E steps)"
+python3 - "$OUT/long.gcode" <<'PY'
+import sys
+open(sys.argv[1], 'w').write('G28\nG90\nG1 X10 F600 ;' + ' ' * 1500 + 'G1 X100 F600\nG1 X20 F600\n')
+PY
+"$H" --gcode "$OUT/long.gcode" >"$OUT/long.txt"
+grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a comment longer than the read buffer is not replayed as a move (2 moves)"
+"$H" --gcode "$OUT" >"$OUT/dir.txt" 2>&1; rc=$?
+[ $rc != 0 ]; chk $? "a read error is not reported as success (exit $rc)"
+
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
