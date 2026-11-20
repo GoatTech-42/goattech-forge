@@ -62,6 +62,26 @@ int main(int argc, char** argv) {
       fclose(f);
     }
   }
+  // Bed targets must match the real setter's 115C ceiling, not MAXTEMP=125.
+  const struct { uint16_t requested, want; } bed_cases[] = {
+    { 114, 114 }, { 115, 115 }, { 116, 115 }, { 125, 115 }
+  };
+  for (const auto &bed : bed_cases) {
+    reset();
+    const forge_diag::PlateParams bp { 40, 200, bed.requested };
+    expect(forge_diag::generate_plate(bp, false), "bed target: generation succeeds");
+    const auto &output = g_fs.files.at("FORGDIA1.G");
+    char header[80], m140[32], m190[32];
+    snprintf(header, sizeof(header), "; temps nozzle=200 bed=%u (confirmed", (unsigned)bed.want);
+    snprintf(m140, sizeof(m140), "M140 S%u\n", (unsigned)bed.want);
+    snprintf(m190, sizeof(m190), "M190 S%u\n", (unsigned)bed.want);
+    expect(output.find(header) != std::string::npos,
+           "bed target: header reports executable target");
+    expect(output.find(m140) != std::string::npos,
+           "bed target: M140 uses executable target");
+    expect(output.find(m190) != std::string::npos,
+           "bed target: M190 uses executable target");
+  }
   bool ok = true; // keep later code shape unchanged
 
   // 2. Entry gates: each refusal must happen BEFORE any openFileWrite.
