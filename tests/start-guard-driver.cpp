@@ -103,6 +103,12 @@ int main() {
   c.startOrResumeFilePrinting();
   check(c.flag.sdprinting && c.myfile.pos == c.sdpos,
         "presence-only sentinel policy unchanged, not exact-final-line validation");
+  c = sample(); c.myfile.name = "FORGDIA1.BAK";
+  c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting && c.myfile.reads == 0, "reserved recovery backup is never printable");
+  c = sample(); c.myfile.name = "forgdia1.bak";
+  c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting, "lowercase reserved backup is never printable");
   c = sample(); c.myfile.open = false;
   c.startOrResumeFilePrinting();
   check(!c.flag.sdprinting && c.myfile.seeks == 0, "no open file refuses start");
