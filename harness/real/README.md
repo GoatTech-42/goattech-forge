@@ -85,7 +85,9 @@ program models that.
 
 Numbers have no exponent (`X10E2` is X10 then E2), lines of any length
 are read whole, and a read error exits 74. A command is matched on its letter
-and number separately (`F1092` is not `G92`). Word text neither program can
+and number separately (`F1092` is not `G92`), and a repeated word letter keeps
+its last occurrence, as Marlin's `FASTER_GCODE_PARSER` does (`G92 E E5` is
+`G92 E5`; `G92 E5 E` has no E value and is refused). Word text neither program can
 read, such as a `*7` checksum or a sign with no digits, is refused with exit 3
 (the replay stops at once with `error: bad token`).
 A segment below `MIN_STEPS_PER_SEGMENT` is deferred by the planner, and the

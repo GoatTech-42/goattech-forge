@@ -80,9 +80,13 @@ def main(path, totals_only=False):
             if not m:
                 bad = True
                 break
+            # A repeated letter keeps its last occurrence, as Marlin's
+            # FASTER_GCODE_PARSER does: G92 E E5 is E5, G92 E5 E has no value.
             w[m.group(1).upper()] = float(m.group(2) or 0.0)
             if m.group(2) is None:
                 novalue.add(m.group(1).upper())
+            else:
+                novalue.discard(m.group(1).upper())
             i = m.end()
         if bad:
             refuse(lineno, 'unreadable word text in %s' % cmd)
