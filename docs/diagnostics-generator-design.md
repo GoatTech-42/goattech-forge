@@ -1,5 +1,14 @@
 # Generator component design (forge_diag.cpp) - API facts verified at pins 2026-10-24
 
+## Plate speed and flow overrides
+
+The start block sends `M220 S100` and `M221 S100` before motion and extrusion
+so a previous job's speed or flow override does not distort the plate's stated
+speeds and filament amounts. This resets runtime speed and flow to 100% and does
+not restore them. No EEPROM write. Users who need other overrides must set them
+again for the next job. Other runtime state is not normalized by this change.
+Host checks do not validate a physical printer.
+
 ## Plate temperature wait requests
 
 The plate requests nozzle heating and cooling with `M109 R<target>`. Nonzero

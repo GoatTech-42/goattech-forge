@@ -242,6 +242,15 @@ static int replay_gcode(const char *path, bool print_blocks) {
       }
       else { printf("unsupported line %ld: M200 other than S0\n", lineno); ++unsupported; }
     }
+    else if (is('M', 220) || is('M', 221)) {
+      // Only the generated 100% reset is modelled, never arbitrary overrides.
+      bool reset_only = hasval['S' - 'A'] && v['S' - 'A'] == 100;
+      for (int i = 0; i < 26; ++i) if (has[i] && i != 'S' - 'A') reset_only = false;
+      if (reset_only) {
+        if (num == 221) planner.set_flow(0, 100);
+      }
+      else { printf("unsupported line %ld: M%d other than S100\n", lineno, num); ++unsupported; }
+    }
     else if (is('G', 21)) { /* millimetres: already the unit */ }
     else if (is('G', 28)) {
       // Simplified homing: a position reset to 0,0,0 without motion. Let
