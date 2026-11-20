@@ -21,12 +21,14 @@ run() {
 }
 cp "$OUT/original.cpp" "$OUT/start-function.cpp"
 run
-for mutant in tail_seek restore_seek short_read; do
+for mutant in name_read tail_seek restore_seek short_read; do
   python3 - "$OUT/original.cpp" "$OUT/start-function.cpp" "$mutant" <<'PY'
 from pathlib import Path
 import sys
 s=Path(sys.argv[1]).read_text()
 changes={
+ 'name_read': ('!myfile.isOpen() || !myfile.getDosName(canon)',
+               '!myfile.isOpen() || (myfile.getDosName(canon), false)'),
  'tail_seek': ('const bool tail_seek_ok = myfile.seekSet(filesize - tail);',
                'const bool tail_seek_ok = (myfile.seekSet(filesize - tail), true);'),
  'restore_seek': ('const bool restored = myfile.seekSet(sdpos);',
