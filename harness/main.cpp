@@ -151,6 +151,21 @@ int main(int argc, char** argv) {
       expect(g_fs.files.empty(), "SD failure: rename failure leaves no new job");
   }
 
+  // Recover in the same process without resetting generator or filesystem.
+  reset();
+  g_fs.files["FORGDIA1.TMP"] = "stale incomplete file";
+  g_fs.short_read = true;
+  expect(!forge_diag::generate_plate(p, false), "SD recovery: short verification read refuses publish");
+  expect(g_fs.files.empty(), "SD recovery: partial-read failure removes stale temp");
+  g_fs.short_read = false;
+  g_fs.files["FORGDIA1.TMP"] = "stale bytes before retry";
+  expect(forge_diag::generate_plate(p, false), "SD recovery: generation succeeds after read failure");
+  expect(g_fs.files.count("FORGDIA1.G") == 1 && g_fs.files.count("FORGDIA1.TMP") == 0,
+         "SD recovery: one complete job and no temp after retry");
+  expect(g_fs.files.count("FORGDIA1.G") == 1
+         && g_fs.files.at("FORGDIA1.G").size() == forge_diag::estimate_plate_bytes(p),
+         "SD recovery: stale bytes do not survive truncation and retry");
+
   printf("HARNESS %s (failures=%d)\n", failures ? "FAILED" : "OK", failures);
   return failures ? 1 : 0;
 }
