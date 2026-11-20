@@ -277,6 +277,14 @@ for c in 'G92 E5*7' 'G1 X10*7' 'G1 X10 E-' 'G1 X.' 'M104 S200*7'; do
   [ $mrc = 3 ] && grep -q '^unsupported line 3: ' "$OUT/$n.merr"; chk $? "model refuses unreadable words in '$c' with its line number, exit 3 (got $mrc)"
 done
 
+# 11d. A repeated word letter: Marlin's FASTER_GCODE_PARSER (on in this config)
+#      keeps the last occurrence, so G92 E E5 sets E to 5 (back to E0 is
+#      LROUND(5f*715.12f) = 3576 steps), while G92 E5 E ends with no value
+#      and is refused by both programs.
+run_pair dupev 'G90\nM82\nG92 E E5\nG1 E0 F600\n'
+both_steps dupev 0,0,0,3576 "G92 E E5 uses the last E word (E5)"
+run_pair dupve 'G90\nM82\nG92 E5 E\nG1 E0 F600\n'
+[ $hrc = 3 ] && [ $mrc = 3 ]; chk $? "G92 E5 E (last E has no value) is refused by both, exit 3 (got $hrc, $mrc)"
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
