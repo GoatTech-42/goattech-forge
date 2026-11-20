@@ -73,6 +73,9 @@ PY
   [ $rc != 0 ]; chk $? "mutation '$name' makes trajectory_check fail (exit $rc)"
   grep -q "^FAIL .*$label" "$OUT/mut-$name.log"; chk $? "mutation '$name' fails the expected check ($label)"
 }
+mut no-prime-height "prime explicitly sets" 'del L[next(i for i, l in enumerate(L) if l.startswith("G1 Z"))]'
+mut zero-prime-height "prime explicitly sets" 'L[next(i for i, l in enumerate(L) if l.startswith("G1 Z"))] = "G1 Z0 F600"'
+mut high-prime-height "prime explicitly sets" 'L[next(i for i, l in enumerate(L) if l.startswith("G1 Z"))] = "G1 Z10 F600"'
 mut no-sentinel "sentinel" 'L = [l for l in L if "FORGE_DIAG_COMPLETE" not in l]'
 mut out-of-bounds "bed/Z bounds" "L.insert(last + 1, 'G1 X300 Y10 F3000')"
 mut z-dive "no Z descents" "L.insert(last + 1, 'G1 Z0.00 F600')"

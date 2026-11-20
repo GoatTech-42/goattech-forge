@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..395b21e
 --- /dev/null
 +++ b/Marlin/src/e3v3se/forge_diag.cpp
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,340 @@
 +/**
 + * GoatTech Forge diagnostics - phase-1 plate generator.
 + *
@@ -189,6 +189,7 @@ index 0000000..395b21e
 +  g_e = 0.0; g_retracted = false;
 +  emit("G92 E0\n");
 +  move_xy(20, 5, 3000);
++  move_z(d.layer_h, 600); // G28 leaves Z at the configured post-homing clearance.
 +  move_xy_e(180, 5, 160.0f, 1200, d); // prime line along front edge
 +  set_retract(true, d);
 +  move_z(2.0f, 600);
