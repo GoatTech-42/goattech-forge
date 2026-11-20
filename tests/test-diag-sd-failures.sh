@@ -16,7 +16,7 @@ run() {
 }
 run >"$OUT/baseline.log" 2>&1 || { cat "$OUT/baseline.log"; exit 1; }
 fails=0
-for mutant in verify_cleanup rename_cleanup rename_ignored; do
+for mutant in verify_cleanup rename_cleanup rename_ignored refuse_stale; do
   python3 - "$OUT/original.cpp" "$OUT/harness/src/e3v3se/forge_diag.cpp" "$mutant" <<'PY'
 import sys
 from pathlib import Path
@@ -26,6 +26,8 @@ anchors={
                     'if (!verified) {\n    f.close();'),
  'rename_cleanup': ('if (!f.rename(&dir, FORGE_DIAG_JOB_NAME)) {\n    f.close();\n    card.removeFile(FORGE_DIAG_TEMP_NAME);',
                     'if (!f.rename(&dir, FORGE_DIAG_JOB_NAME)) {\n    f.close();'),
+ 'refuse_stale': ('  card.openFileWrite(FORGE_DIAG_TEMP_NAME);',
+                  '  if (card.fileExists(FORGE_DIAG_TEMP_NAME)) return false;\n  card.openFileWrite(FORGE_DIAG_TEMP_NAME);'),
  'rename_ignored': ('if (!f.rename(&dir, FORGE_DIAG_JOB_NAME)) {',
                     'if ((f.rename(&dir, FORGE_DIAG_JOB_NAME), false)) {'),
 }
@@ -35,7 +37,7 @@ Path(sys.argv[2]).write_text(s.replace(a,b,1))
 PY
   rc=0
   run >"$OUT/mutant.log" 2>&1 || rc=$?
-  if [ "$rc" = 1 ] && grep -q '^FAIL SD failure:' "$OUT/mutant.log"; then
+  if [ "$rc" = 1 ] && grep -qE '^FAIL SD (failure|recovery):' "$OUT/mutant.log"; then
     echo "PASS: $mutant detected by generator failure assertions"
   else
     cat "$OUT/mutant.log"

@@ -12,6 +12,7 @@ struct FakeFS {
   bool tamper_tail = false;          // corrupt file tail at closefile
   bool fail_write_open = false, fail_read_open = false;
   bool fail_seek = false, fail_read = false, fail_rename = false;
+  bool short_read = false; // return a partial verification read
   std::vector<std::string> calls;    // audit log for assertions
 };
 extern FakeFS g_fs;
@@ -36,6 +37,7 @@ public:
     g_fs.calls.push_back("read");
     if (g_fs.fail_read || !is_open) return -1;
     size_t avail = content.size() - pos, k = n < avail ? n : avail;
+    if (g_fs.short_read && k > 0) --k;
     memcpy(buf, content.data() + pos, k); pos += k; return (int)k;
   }
   bool rename(MediaFile*, const char* n) {
