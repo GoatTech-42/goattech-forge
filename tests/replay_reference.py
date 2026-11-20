@@ -106,7 +106,7 @@ def main(path, totals_only=False):
             if missing:
                 refuse(lineno, '%s %s without a value' % (cmd, missing[0]))
                 continue
-            if 'F' in w and f32(w['F']) > 0:
+            if 'F' in w and w['F'] > 0 and f32(w['F']) > 0:
                 feed = f32(w['F'] / 60.0)
             t = list(pos)
             for i, a in enumerate('XYZE'):
