@@ -169,7 +169,8 @@ def main(path, totals_only=False):
                 refuse(lineno, 'M200 other than S0')
             # Linear E is this model's baseline. Other M200 modes are refused.
         elif cmd in ('M220', 'M221'):
-            if set(w) != {'S'} or 'S' in novalue or w['S'] != 100:
+            if (set(w) != {'S'} or 'S' in novalue or not math.isfinite(w['S'])
+                    or abs(w['S']) > F32_MAX or f32(w['S']) != 100):
                 refuse(lineno, cmd + ' other than S100')
             # 100% speed and flow are this model's baseline.
         elif cmd == 'G28':
