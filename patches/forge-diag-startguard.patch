@@ -31,7 +31,7 @@ index 1949d9c413..da32ac0b53 100644
  #include "../libs/hex_print.h"
  #include "../lcd/marlinui.h"
  
-@@ -717,6 +719,42 @@ void CardReader::openAndPrintFile(const char *name) {
+@@ -717,6 +719,46 @@ void CardReader::openAndPrintFile(const char *name) {
   */
  void CardReader::startOrResumeFilePrinting() {
    if (isMounted()) {
@@ -43,7 +43,11 @@ index 1949d9c413..da32ac0b53 100644
 +    // user/host-supplied name or the last-scanned directory entry.
 +    {
 +      char canon[FILENAME_LENGTH] = { 0 };
-+      if (myfile.isOpen()) myfile.getDosName(canon);
++      if (!myfile.isOpen() || !myfile.getDosName(canon)) {
++        SERIAL_ECHOLNPGM("Forge: refusing SD start with unreadable file name");
++        ui.set_status_P(PSTR("Forge: file name read failed - reopen job"));
++        return;
++      }
 +      for (char *p = canon; *p; p++)
 +        if (*p >= 'a' && *p <= 'z') *p -= 'a' - 'A';
 +      if (!strcmp(canon, FORGE_DIAG_TEMP_NAME)) {

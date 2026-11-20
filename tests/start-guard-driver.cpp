@@ -15,8 +15,12 @@ struct FileStub {
   uint32_t pos = 0;
   int seeks = 0, reads = 0, fail_seek = 0;
   bool fail_read = false, short_read = false, cluster_valid = true;
-  bool isOpen() { return true; }
-  void getDosName(char *out) { std::strcpy(out, name.c_str()); }
+  bool fail_name = false, open = true;
+  bool isOpen() { return open; }
+  bool getDosName(char *out) {
+    if (fail_name) return false;
+    std::strcpy(out, name.c_str()); return true;
+  }
   bool seekSet(uint32_t target) {
     ++seeks;
     if (seeks == fail_seek) { cluster_valid = false; return false; }
@@ -99,5 +103,22 @@ int main() {
   c.startOrResumeFilePrinting();
   check(c.flag.sdprinting && c.myfile.pos == c.sdpos,
         "presence-only sentinel policy unchanged, not exact-final-line validation");
+  c = sample(); c.myfile.open = false;
+  c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting && c.myfile.seeks == 0, "no open file refuses start");
+  c = sample(); c.myfile.name = "forgdia1.tmp";
+  c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting, "known lowercase temp remains refused");
+  c = sample(); c.myfile.name = "forgdia1.g";
+  c.startOrResumeFilePrinting();
+  check(c.flag.sdprinting && c.myfile.pos == c.sdpos, "known lowercase job remains checked and accepted");
+  for (const char *name : { FORGE_DIAG_TEMP_NAME, FORGE_DIAG_JOB_NAME, "NORMAL.G" }) {
+    c = sample(); c.myfile.name = name; c.myfile.fail_name = true;
+    c.startOrResumeFilePrinting();
+    check(!c.flag.sdprinting && c.flag.sdprintdone && c.flushes == 0,
+          "unreadable identity refuses every job, including ordinary files");
+    check(c.myfile.seeks == 0 && c.myfile.reads == 0,
+          "unreadable identity does not inspect file content");
+  }
   return failures ? 1 : 0;
 }
