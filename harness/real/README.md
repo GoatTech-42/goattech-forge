@@ -71,7 +71,7 @@ Accepted subset (the Python model accepts exactly the same one):
 
 `G28` is simplified homing: a position reset to 0,0,0 without motion, then
 every axis is resynced (`set_position_mm`), as the firmware's
-`sync_plan_position()` does after homing. `G92 E<value>` follows `G92.cpp`:
+`sync_plan_position()` does after homing (the model re-rounds E the same way). `G92 E<value>` follows `G92.cpp`:
 only E changes, and only when it differs from the current E by more than
 `NEAR_ZERO`; then `planner.set_e_position_mm()` re-rounds the E step baseline
 alone, so a deferred sub-`MIN_STEPS_PER_SEGMENT` X/Y/Z move still counts from
@@ -81,12 +81,13 @@ blocks are pending is not modelled or counted. A bare `G92` changes nothing.
 `G92` with X, Y, Z or any other word, or `E` without a value, is refused
 before anything changes: workspace offsets are on in this config, so a real
 `G92 X` shifts the workspace instead of the planner position, and neither
-program models that. Known model gap: the Python model's `G28` resets only the
-X/Y/Z step baselines and leaves the E baseline as it was, while the replay
-re-rounds E too; no fixture depends on the difference.
+program models that.
 
 Numbers have no exponent (`X10E2` is X10 then E2), lines of any length
-are read whole, and a read error exits 74.
+are read whole, and a read error exits 74. A command is matched on its letter
+and number separately (`F1092` is not `G92`). Word text neither program can
+read, such as a `*7` checksum or a sign with no digits, is refused with exit 3
+(the replay stops at once with `error: bad token`).
 A segment below `MIN_STEPS_PER_SEGMENT` is deferred by the planner, and the
 model does the same. When no X/Y/Z axis reaches `MIN_STEPS_PER_SEGMENT` but E
 does, the block length is the E distance (`!XYZ_HAS_ENOUGH_STEPS` in

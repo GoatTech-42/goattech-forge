@@ -189,7 +189,9 @@ static int replay_gcode(const char *path, bool print_blocks) {
     // M117 carries free text, not words: ignore it before any word parsing.
     if (cmd == 'M' && num == 117) { ++r.ignored; continue; }
     parse_words(line, rest, v, has, hasval);
-    const int code = cmd * 1000 + num;   // e.g. 'G'*1000 + 1
+    // Compare letter and number separately: a packed key such as
+    // letter*1000 + number would make F1092 equal to G92.
+    auto is = [&](const char c, const int n) { return cmd == c && num == n; };
     if (cmd == 'G' && (num == 0 || num == 1)) {
       if (has['F' - 'A']) feed = v['F' - 'A'] / 60.0f;
       const bool e_relative = e_mode == 2 ? true : e_mode == 1 ? false : rel_e;
@@ -203,12 +205,12 @@ static int replay_gcode(const char *path, bool print_blocks) {
       if (!planner.buffer_line(t, feed, 0)) ++r.rejected;
       pos = t;
     }
-    else if (code == 'G' * 1000 + 90) { rel_xyz = rel_e = false; e_mode = 0; }
-    else if (code == 'G' * 1000 + 91) { rel_xyz = rel_e = true; e_mode = 0; }
-    else if (code == 'M' * 1000 + 82) e_mode = 1;
-    else if (code == 'M' * 1000 + 83) e_mode = 2;
-    else if (code == 'G' * 1000 + 21) { /* millimetres: already the unit */ }
-    else if (code == 'G' * 1000 + 28) {
+    else if (is('G', 90)) { rel_xyz = rel_e = false; e_mode = 0; }
+    else if (is('G', 91)) { rel_xyz = rel_e = true; e_mode = 0; }
+    else if (is('M', 82)) e_mode = 1;
+    else if (is('M', 83)) e_mode = 2;
+    else if (is('G', 21)) { /* millimetres: already the unit */ }
+    else if (is('G', 28)) {
       // Simplified homing: a position reset to 0,0,0 without motion. Let
       // queued blocks finish first, then resync every axis like Marlin's
       // sync_plan_position() after homing.
@@ -216,7 +218,7 @@ static int replay_gcode(const char *path, bool print_blocks) {
       pos.x = pos.y = pos.z = 0;
       planner.set_position_mm(pos);
     }
-    else if (code == 'G' * 1000 + 92) {
+    else if (is('G', 92)) {
       // Only G92 with no words (a no-op) or with E and a value is modelled.
       // Workspace offsets are on in this config, so a real G92 X/Y/Z shifts
       // the workspace instead of the planner position; that is not modelled,
@@ -240,7 +242,7 @@ static int replay_gcode(const char *path, bool print_blocks) {
       }
       // bare G92: no word seen, nothing changes (as in G92.cpp)
     }
-    else if (code == 'M' * 1000 + 400) { while (planner.has_blocks_queued()) pop_block(r); }   // finish moves
+    else if (is('M', 400)) { while (planner.has_blocks_queued()) pop_block(r); }   // finish moves
     else if (cmd == 'G' && num == 4) ++r.ignored;
     else if (cmd == 'M' && (num == 104 || num == 109 || num == 140 || num == 190 || num == 106 || num == 107 ||
                             num == 84 || num == 73 || num == 105)) ++r.ignored;

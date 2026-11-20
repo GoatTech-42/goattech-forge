@@ -26,6 +26,7 @@ MAXF = [500.0, 500.0, 20.0, 30.0]
 MIN_STEPS = 4   # MIN_STEPS_PER_SEGMENT in harness/config/Configuration_adv.h
 NEAR_ZERO = f32(0.000001)   # Marlin's NEAR_ZERO bound (core/macros.h)
 STATE = {'G0', 'G1', 'G90', 'G91', 'M82', 'M83', 'G21', 'G28', 'G92', 'M400'}
+WORD = re.compile(r'([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))?')
 IGNORED = {'G4', 'M104', 'M109', 'M140', 'M190', 'M106', 'M107', 'M84', 'M73', 'M105', 'M117'}
 
 def lround(x):  # round half away from zero, like Marlin's LROUND
@@ -63,14 +64,31 @@ def main(path, totals_only=False):
         if cmd not in STATE and cmd not in IGNORED:
             refuse(lineno, cmd)
             continue
-        if cmd in IGNORED:   # no motion; M117 text is never parsed as words
+        if cmd == 'M117':   # free text, never parsed as words
             continue
         w = {}
         novalue = set()   # letters given without a number
-        for m in re.finditer(r'([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))?', line[head.end():]):
+        # Every character after the command must be a word (letter, optional
+        # number) or whitespace; anything else, such as a "*7" checksum or a
+        # stray sign, is refused before any state changes, as the replay does.
+        rest, i, bad = line[head.end():], 0, False
+        while i < len(rest):
+            if rest[i].isspace():
+                i += 1
+                continue
+            m = WORD.match(rest, i)
+            if not m:
+                bad = True
+                break
             w[m.group(1).upper()] = float(m.group(2) or 0.0)
             if m.group(2) is None:
                 novalue.add(m.group(1).upper())
+            i = m.end()
+        if bad:
+            refuse(lineno, 'unreadable word text in %s' % cmd)
+            continue
+        if cmd in IGNORED:   # no motion
+            continue
         if cmd in ('G0', 'G1'):
             if 'F' in w:
                 feed = f32(w['F'] / 60.0)
@@ -111,7 +129,13 @@ def main(path, totals_only=False):
         elif cmd == 'G91': relxyz = rele = True; emode = 0
         elif cmd == 'M82': emode = 1
         elif cmd == 'M83': emode = 2
-        elif cmd == 'G28': pos[0] = pos[1] = pos[2] = 0.0; pos_steps[:3] = [0, 0, 0]
+        elif cmd == 'G28':
+            # Simplified homing as in the replay: X/Y/Z to 0, then every axis
+            # resynced (sync_plan_position() -> set_position_mm()), so E is
+            # re-rounded from its logical position too.
+            pos[0] = pos[1] = pos[2] = 0.0
+            pos_steps[:3] = [0, 0, 0]
+            pos_steps[3] = lround(f32(pos[3] * SPM[3]))
         elif cmd == 'G92':
             # Only E with a value, or no word at all (a no-op). Workspace
             # offsets are on in this config, so G92 X/Y/Z would shift the
