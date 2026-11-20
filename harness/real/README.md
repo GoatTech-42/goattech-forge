@@ -88,15 +88,19 @@ are read whole, and a read error exits 74. A command is matched on its letter
 and number separately (`F1092` is not `G92`), and a repeated word letter keeps
 its last occurrence, as Marlin's `FASTER_GCODE_PARSER` does (`G92 E E5` is
 `G92 E5`; `G92 E5 E` has no E value and is refused). A `G0`/`G1` whose last
-`X`, `Y`, `Z` or `E` word has no number (`G1 X`, `G1 X10 X`) is refused by both
+`X`, `Y`, `Z`, `E` or `F` word has no number (`G1 X`, `G1 X10 X`, `G1 X20 F`) is refused by both
 programs with exit 3, before the feed rate or any position changes. This is a
 refused subset, not a firmware bug: in the pinned source, `parser.cpp` records
 each word with `set(letter, valptr)`, `valptr` null when no number follows,
 so the last occurrence of a letter wins; `parser.h` `seenval(c)` is
 `seen(c) && has_value()`, false for that word; and `gcode.cpp`
 `get_destination_from_command()` reads every axis and E with `seenval()`, so
-the firmware leaves that axis where it is. Neither program models that
-reading. When the last occurrence has a number (`G1 X X10`), it is that
+the firmware leaves that axis where it is. The feed-rate reader checks
+`floatval('F') > 0`. `floatval` calls `seenval` and defaults to zero for a bare F,
+so the previous feed rate is kept. Neither program models that
+bare-word reading. Numbered F words are accepted; as in the pinned firmware,
+zero and negative F keep the previous feed rate and still perform the move.
+When the last occurrence has a number (`G1 X X10`), it is that
 number, in Marlin and in both programs. Word text neither program can
 read, such as a `*7` checksum or a sign with no digits, is refused with exit 3
 (the replay stops at once with `error: bad token`).
