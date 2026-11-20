@@ -15,7 +15,7 @@ bash "$ROOT/tests/test-74-sdclose.sh" "$OUT/tree" >"$OUT/baseline.log" 2>&1 || {
 }
 cp "$OUT/tree/Marlin/src/lcd/dwin/creality/dwin.cpp" "$OUT/original.cpp"
 fails=0
-for mutant in noop extra wrong_pause comment_decoy moved_outside raw_literal continued_comment; do
+for mutant in noop extra wrong_pause comment_decoy moved_outside raw_literal continued_comment split_comment digit_separator; do
   python3 - "$OUT/original.cpp" "$OUT/tree/Marlin/src/lcd/dwin/creality/dwin.cpp" "$mutant" <<'PY'
 import sys
 from pathlib import Path
@@ -30,6 +30,8 @@ replacements={
  'moved_outside': '(void)0;\n    card.closefile();',
  'raw_literal': 'const char *fixture = u8R"forge(embedded " quote\n'+a+'\n)forge";',
  'continued_comment': '// continued fixture '+chr(92)+'\n'+a,
+ 'split_comment': '/'+chr(92)+'\n/ split fixture '+chr(92)+'\n'+a,
+ 'digit_separator': "int fixture_before = 1'000;\n    "+a+"\n    int fixture_after = 2'000;",
 }
 s=s.replace(a,replacements[sys.argv[3]],1)
 if sys.argv[3]=='moved_outside':
@@ -39,7 +41,12 @@ Path(sys.argv[2]).write_text(s)
 PY
   rc=0
   bash "$ROOT/tests/test-74-sdclose.sh" "$OUT/tree" >"$OUT/mutant.log" 2>&1 || rc=$?
-  if [ "$rc" = 1 ] && grep -q '^FAIL: Goto_MainMenu closefile containment contract' "$OUT/mutant.log"; then
+  diagnostic='^FAIL: Goto_MainMenu closefile containment contract'
+  case "$mutant" in
+    continued_comment|split_comment|digit_separator)
+      diagnostic='^FAIL: Goto_MainMenu closefile containment contract: unsupported lexical construct' ;;
+  esac
+  if [ "$rc" = 1 ] && grep -q "$diagnostic" "$OUT/mutant.log"; then
     echo "PASS: $mutant rejected by containment contract"
   else
     cat "$OUT/mutant.log"
