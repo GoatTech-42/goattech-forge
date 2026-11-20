@@ -15,7 +15,7 @@ bash "$ROOT/tests/test-74-sdclose.sh" "$OUT/tree" >"$OUT/baseline.log" 2>&1 || {
 }
 cp "$OUT/tree/Marlin/src/lcd/dwin/creality/dwin.cpp" "$OUT/original.cpp"
 fails=0
-for mutant in noop extra wrong_pause comment_decoy moved_outside raw_literal; do
+for mutant in noop extra wrong_pause comment_decoy moved_outside raw_literal continued_comment; do
   python3 - "$OUT/original.cpp" "$OUT/tree/Marlin/src/lcd/dwin/creality/dwin.cpp" "$mutant" <<'PY'
 import sys
 from pathlib import Path
@@ -29,6 +29,7 @@ replacements={
  'comment_decoy': '// '+a.replace('\n',' ')+'\n    card.closefile();',
  'moved_outside': '(void)0;\n    card.closefile();',
  'raw_literal': 'const char *fixture = u8R"forge(embedded " quote\n'+a+'\n)forge";',
+ 'continued_comment': '// continued fixture '+chr(92)+'\n'+a,
 }
 s=s.replace(a,replacements[sys.argv[3]],1)
 if sys.argv[3]=='moved_outside':
