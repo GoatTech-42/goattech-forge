@@ -285,6 +285,38 @@ run_pair dupev 'G90\nM82\nG92 E E5\nG1 E0 F600\n'
 both_steps dupev 0,0,0,3576 "G92 E E5 uses the last E word (E5)"
 run_pair dupve 'G90\nM82\nG92 E5 E\nG1 E0 F600\n'
 [ $hrc = 3 ] && [ $mrc = 3 ]; chk $? "G92 E5 E (last E has no value) is refused by both, exit 3 (got $hrc, $mrc)"
+
+# 12. A G0/G1 axis word with no value. Pinned Marlin (FASTER_GCODE_PARSER)
+#     keeps the last occurrence of a letter, and get_destination_from_command()
+#     reads each axis with parser.seenval(), which is false when that last
+#     occurrence has no number, so the axis keeps its position. Neither
+#     program models that "not given" reading, so a final X/Y/Z/E with no
+#     value is refused (exit 3) before the feed rate or any position changes.
+#     A repeated word whose last occurrence has a value is that value.
+for c in 'G1 X' 'G1 Y' 'G1 Z' 'G1 E' 'G0 X' 'G1 X10 X' 'G1 Y10 Y' 'G1 Z1 Z' 'G1 E1 E'; do
+  n="novalue$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$c\\nG1 X20 F600\\n"
+  cw=$(echo "$c" | cut -d' ' -f1)
+  [ $hrc = 3 ] && grep -q "^unsupported line 3: $cw " "$OUT/$n.h"; chk $? "harness refuses '$c' (last axis word has no value), exit 3 with its line number (got $hrc)"
+  grep -q 'unsupported=0' "$OUT/$n.h"; chk $([ $? = 1 ]; echo $?) "harness summary does not report '$c' as supported"
+  [ $mrc = 3 ] && grep -q "^unsupported line 3: $cw " "$OUT/$n.merr"; chk $? "model refuses '$c' (last axis word has no value), exit 3 with its line number (got $mrc)"
+done
+# guards: the last occurrence has a value, so seenval() reads it
+for c in 'G1 X X10:800,0,0,0' 'G1 Y Y10:0,800,0,0' 'G1 Z Z1:0,0,400,0' 'G1 E E1:0,0,0,715' 'G1 X5 X X10:800,0,0,0'; do
+  g=${c%%:*}; s=${c#*:}; n="lastval$(echo "$g" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$g F600\\n"
+  both_steps "$n" "$s" "'$g' uses the last word's value"
+done
+# a refused line changes nothing: not X, not E, not the feed rate. The next
+# move still runs X 5->10 and E 1->2 at F600 (10 mm/s), so the totals are the
+# two real moves and the last block keeps nominal_speed=10.00.
+run_pair novaluekeep 'G90\nM82\nG1 X5 E1 F600\nG1 X F6000\nG1 Y E F6000\nG1 X10 E2\n'
+[ $hrc = 3 ] && [ "$(steps_of "$OUT/novaluekeep.h")" = 800,0,0,1430 ]; chk $? "harness: refused valueless words leave X and E untouched, exit 3 (got $hrc, $(steps_of "$OUT/novaluekeep.h"))"
+[ $mrc = 3 ] && [ "$(steps_of "$OUT/novaluekeep.m")" = 800,0,0,1430 ]; chk $? "model: refused valueless words leave X and E untouched, exit 3 (got $mrc, $(steps_of "$OUT/novaluekeep.m"))"
+grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novaluekeep.h"; chk $? "harness: feed rate is unchanged after the refused lines ($(grep '^rblock 1' "$OUT/novaluekeep.h"))"
+grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novaluekeep.m"; chk $? "model: feed rate is unchanged after the refused lines ($(grep '^rblock 1' "$OUT/novaluekeep.m"))"
+grep -q '^unsupported line 4: ' "$OUT/novaluekeep.h" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.h"; chk $? "harness names both refused lines (4 and 5)"
+grep -q '^unsupported line 4: ' "$OUT/novaluekeep.merr" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.merr"; chk $? "model names both refused lines (4 and 5)"
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
