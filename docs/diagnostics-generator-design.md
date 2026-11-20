@@ -1,5 +1,15 @@
 # Generator component design (forge_diag.cpp) - API facts verified at pins 2026-10-24
 
+## Plate extrusion mode
+
+The generated start block sends `M200 S0` before extrusion because its E values
+are millimetres of 1.75mm filament, not cubic millimetres. Printing the plate
+disables runtime volumetric extrusion and does not restore it afterward. It does
+not write EEPROM. Users who need volumetric extrusion must enable it again for
+their next job. This prevents a previously enabled M200 mode from scaling the
+plate's E values a second time. Other runtime overrides are not reset by this
+change. Host tests are not printer validation.
+
 ## Verified API facts (source, pin efc211e8, c13 tree)
 - CardReader::openFileWrite(path): O_CREAT|O_APPEND|O_WRITE|O_TRUNC (truncates
   existing TMP - reviewer G1 confirmed). Calls abortFilePrintNow() first, so
