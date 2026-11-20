@@ -402,6 +402,16 @@ for words in S1 D0 'S0 D1.75' 'S0 T0' S; do
   run_pair refusedvolumetric "G90\nM82\nM200 $words\nG1 X10 E1 F600\n"
   [ "$hrc" = 3 ] && [ "$mrc" = 3 ]; chk $? "both refuse unsupported M200 $words"
 done
+# Runtime override support is limited to baseline resets.
+run_pair baselinereset "G90\nM82\nM220 S100\nM221 S100\nG1 X10 E1 F600\n"
+[ "$hrc" = 0 ] && [ "$mrc" = 0 ]; chk $? "both accept baseline speed/flow resets"
+for cmd in M220 M221; do
+  for words in S50 S150 S 'S100 T0'; do
+    run_pair refusedoverride "G90\nM82\n$cmd $words\nG1 X10 E1 F600\n"
+    [ "$hrc" = 3 ] && [ "$mrc" = 3 ]; chk $? "both refuse unsupported $cmd $words"
+  done
+done
+
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
