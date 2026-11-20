@@ -33,6 +33,31 @@ def need(cond,msg):
     print(("PASS: " if cond else "FAIL: ")+msg)
     ok = ok and cond
 
+# --- Literal pinned-source containment contract ---
+# Remove comments and literals before finding the definition, so neither a
+# warning comment nor a string can satisfy executable-source checks. This is
+# deliberately a narrow spelling/shape contract, not a C++ parser or proof of
+# preprocessor/runtime behavior. New valid source shapes need explicit review.
+lexical = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+code = re.sub(lexical, ' ', dwin)
+defs = list(re.finditer(r'\bvoid\s+Goto_MainMenu\s*\(\s*\)\s*\{', code))
+body = ''
+if len(defs) == 1:
+    start = defs[0].end()
+    depth = 1
+    for end in range(start, len(code)):
+        depth += (code[end] == '{') - (code[end] == '}')
+        if depth == 0:
+            body = code[start:end]
+            break
+close = r'\bcard\s*\.\s*closefile\s*\('
+guarded = (r'\bif\s*\(\s*!Marlin::printJobOngoing\s*\(\s*\)\s*&&\s*'
+           r'!Marlin::printingIsPaused\s*\(\s*\)\s*\)\s*'
+           r'card\s*\.\s*closefile\s*\(\s*\)\s*;')
+need(bool(body) and len(re.findall(close, body)) == 1
+     and len(re.findall(guarded, body)) == 1,
+     'Goto_MainMenu closefile containment contract')
+
 # --- REAL predicate definitions extracted from pinned source ---
 need('bool Marlin::printJobOngoing() { return print_job_timer.isRunning() || card.isStillPrinting(); }' in core,
      "printJobOngoing = timer.isRunning || card.isStillPrinting (MarlinCore.cpp)")
