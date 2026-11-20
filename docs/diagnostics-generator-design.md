@@ -1,5 +1,18 @@
 # Generator component design (forge_diag.cpp) - API facts verified at pins 2026-10-24
 
+## Plate temperature wait requests
+
+The plate requests nozzle heating and cooling with `M109 R<target>`. Nonzero
+bed targets use `M190 R<target>`; a disabled bed keeps `M190 S0` so the plate
+does not request cooling toward zero. Coming from a hotter previous job can
+therefore delay printing while cooling.
+
+These commands request cooling waits, not proof of reaching the selected
+temperature. The pinned firmware can leave its wait loop on cancellation or a
+cooling-slope timeout, and its command handlers do not turn that result into a
+plate-start refusal. This change does not alter those upstream behaviors. No
+physical heater, timing or printer validation has been performed.
+
 ## Plate extrusion mode
 
 The generated start block sends `M200 S0` before extrusion because its E values
