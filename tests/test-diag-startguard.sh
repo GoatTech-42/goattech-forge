@@ -21,6 +21,6 @@ chk "job name sentinel check"             'grep -q "strcmp(canon, FORGE_DIAG_JOB
 chk "canonical case-fold"                 'grep -qF "*p -= '"'"'a'"'"' - '"'"'A'"'"'" "$C"'
 chk "name from opened file (getDosName)"  'grep -qF "myfile.getDosName(canon)" "$C"' 
 chk "read position restored"              'grep -q "myfile.seekSet(sdpos)" "$C"'
-chk "refuse returns (2 paths)"            '[ $(awk "/void CardReader::startOrResumeFilePrinting/,/flag.sdprinting = true/" "$C" | grep -c "return;") -eq 2 ]'
+chk "refuse returns (3 paths)"            '[ $(awk "/void CardReader::startOrResumeFilePrinting/,/flag.sdprinting = true/" "$C" | grep -c "return;") -eq 3 ]'
 echo "== $pass passed, $fail failed =="
 [ $fail -eq 0 ]
