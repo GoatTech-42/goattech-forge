@@ -10,13 +10,21 @@ permissions:
 
 jobs:
   source-tests:
+    name: source-tests (${{ matrix.board }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: [c13, c14]   # pins C13_COMMIT / C14_COMMIT in build.sh
     steps:
       - uses: actions/checkout@v4
       - name: Clone pinned upstream and apply the Forge patch chain
         run: |
           set -euo pipefail
-          COMMIT=$(grep -m1 '^C13_COMMIT=' build.sh | cut -d'"' -f2)
+          VAR="$(echo '${{ matrix.board }}' | tr a-z A-Z)_COMMIT"
+          COMMIT=$(grep -m1 "^${VAR}=" build.sh | cut -d'"' -f2)
+          [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "no pin found for $VAR in build.sh"; exit 1; }
+          echo "Board ${{ matrix.board }}: upstream pin $COMMIT"
           git clone --quiet https://github.com/navaismo/Marlin_bugfix_2.1_E3V3SE.git "$RUNNER_TEMP/marlin"
           git -C "$RUNNER_TEMP/marlin" checkout --quiet "$COMMIT"
           for p in forge-dwin-input-shaping-menu forge-74-sdclose-guard forge-diag-startguard forge-config-restore forge-diag-generator forge-diag-menu; do
