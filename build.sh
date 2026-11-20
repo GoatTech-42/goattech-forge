@@ -37,18 +37,18 @@ FORGE_PATCH4="patches/forge-config-restore.patch"
 EXPECTED_PATCH4_SHA256="47c5fe85488ae6a3ca13746645ee47a239d600adac90096b48d75e04217d31d4"
 # Patch 5: Forge diagnostics phase-1 plate generator (applied after the config restore, same strict pin)
 FORGE_PATCH5="patches/forge-diag-generator.patch"
-EXPECTED_PATCH5_SHA256="628761333e26ca2e274129ae81c54f2ce1db9c3069b4294ba9cd9998018b9274"
+EXPECTED_PATCH5_SHA256="3c12881ecd1bc625e614a79b31831f8c269a7f75829987388367ede7107dd847"
 # Patch 6: Forge diagnostics menu / review screen (applied after the generator, same strict pin)
 FORGE_PATCH6="patches/forge-diag-menu.patch"
-EXPECTED_PATCH6_SHA256="7f600ef66bbcba88caec74f282146a4418e62660fd91dfdf5af320c38068cada"
+EXPECTED_PATCH6_SHA256="e9da35d93df76c5dfbd28d575fd93bc0ec0881a58cf8c57b5594bfe9830c3132"
 # Full-content hashes of every file the patches touch, after applying the
 # full pinned patch chain to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
 EXPECTED_CARDREADER_SHA256="bc0e59731cf3a991001ce7caf3a562f2b413ec9c84d1166362faede2a5f0fa91"
 EXPECTED_FORGEDIAGH_SHA256="7e62dcdb10db6810cdbdbb4ecf52c697e86b9459fb32637416fb7b555173e652"
-EXPECTED_FORGEDIAGCPP_SHA256="7d63e9714889a090972f382a75d4b4e27f797fcdff7a1ec8d308e661b2ac7e54"
-EXPECTED_DWINCPP_SHA256="e788bf250fab558fd79a49db2509e470d5c26cfea8869bdb6842c995f501fe45"
+EXPECTED_FORGEDIAGCPP_SHA256="64a3f87be627a5690b49363cd936c94b65c04643259c0c1d269f85766dea02a8"
+EXPECTED_DWINCPP_SHA256="e042b0320c0f2df40a577a93ee33444648ea7239be1f113d4b4d125a719b702b"
 EXPECTED_DWINH_SHA256="9e9c4bee320819789f4f1af70da05761c7182012fe32ba222b20fd4c161f3476"
 EXPECTED_LANGEN_SHA256="e3c389755f03beceb4edc995ea071c32c022ddfb47681d2c2252c2102cb7be25"
 

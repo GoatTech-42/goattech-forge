@@ -101,7 +101,7 @@ index 0000000..395b21e
 +  d.box_layers   = (int)(BOX_HEIGHT   / d.layer_h + 0.5f);
 +  d.patch_layers = (int)(PATCH_HEIGHT / d.layer_h + 0.5f);
 +  d.temp_nozzle  = constrain(p.temp_nozzle, 170, thermalManager.hotend_max_target(0));
-+  d.temp_bed     = constrain(p.temp_bed, 0, BED_MAXTEMP);
++  d.temp_bed     = constrain(p.temp_bed, 0, BED_MAX_TARGET);
 +  return d;
 +}
 +
