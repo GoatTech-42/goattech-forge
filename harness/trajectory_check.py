@@ -38,6 +38,8 @@ retracted = False
 collisions, desc_bad, bounds_bad = 0, 0, 0
 double_retract, phantom_deretract = 0, 0
 eps = 1e-6
+first_deposit_z = None
+explicit_z = False
 n_moves = 0
 for raw in data.split('\n'):
     line = raw.split(';', 1)[0].strip()
@@ -52,7 +54,10 @@ for raw in data.split('\n'):
     elif cmd == 'G91': abs_xyz = abs_e = False
     elif cmd == 'M82': abs_e = True
     elif cmd == 'M83': abs_e = False
-    elif cmd == 'G28': x = y = z = 0.0
+    elif cmd == 'G28':
+        x = y = 0.0
+        z = 10.0  # Both pinned boards raise to Z_AFTER_HOMING after G28.
+        explicit_z = False
     elif cmd == 'G92':
         if 'E' in args: e = args['E']
     elif cmd in ('G0', 'G1'):
@@ -63,8 +68,12 @@ for raw in data.split('\n'):
         if 'E' in args:
             ne = args['E'] if abs_e else e + args['E']
             de = ne - e
-        if not (0 <= nx <= 235 and 0 <= ny <= 235 and -0.01 <= nz <= 40): bounds_bad += 1
         xy_move = (nx, ny) != (x, y)
+        if 'Z' in args: explicit_z = True
+        if de > eps and xy_move and first_deposit_z is None:
+            first_deposit_z = (nz, explicit_z)
+        # Loose legacy bound, not the pinned 220x220mm bed configuration.
+        if not (0 <= nx <= 235 and 0 <= ny <= 235 and -0.01 <= nz <= 40): bounds_bad += 1
         z_desc = nz < z - eps
         # Z descent: must not end below existing material at this (x,y)
         if z_desc:
@@ -88,6 +97,8 @@ for raw in data.split('\n'):
         x, y, z, e = nx, ny, nz, ne
         n_moves += 1
 
+ck('prime explicitly sets a printable first-layer Z after homing',
+   first_deposit_z is not None and first_deposit_z[1] and 0.10 <= first_deposit_z[0] <= 0.32)
 ck(f'no Z descents into printed material ({desc_bad})', desc_bad == 0)
 ck(f'no XY travels through printed material ({collisions})', collisions == 0)
 ck(f'no double retracts ({double_retract})', double_retract == 0)
