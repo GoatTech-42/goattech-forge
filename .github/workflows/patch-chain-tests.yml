@@ -36,6 +36,8 @@ jobs:
         run: bash tests/test-harness-real-planner.sh "$RUNNER_TEMP/marlin"
       - name: G-code replay through the real planner (F1b, host simulation only)
         run: bash tests/test-harness-gcode-replay.sh "$RUNNER_TEMP/marlin"
+      - name: Golden plate traces and motion-breaking checks (F1c, host simulation only)
+        run: bash tests/test-trajectory-golden.sh "$RUNNER_TEMP/marlin"
       - name: build-real.sh scratch isolation and spaced paths (host build only)
         run: |
           set -euo pipefail

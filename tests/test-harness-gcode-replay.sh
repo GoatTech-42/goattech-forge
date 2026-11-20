@@ -320,6 +320,47 @@ grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novalue
 grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novaluekeep.m"; chk $? "model: feed rate is unchanged after the refused lines ($(grep '^rblock 1' "$OUT/novaluekeep.m"))"
 grep -q '^unsupported line 4: ' "$OUT/novaluekeep.h" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.h"; chk $? "harness names both refused lines (4 and 5)"
 grep -q '^unsupported line 4: ' "$OUT/novaluekeep.merr" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.merr"; chk $? "model names both refused lines (4 and 5)"
+
+# 13. A final feed-rate word without a number must fail before motion/state changes.
+for c in 'G1 X20 F' 'G0 X20 F' 'G1 X20 F600 F' 'G1 X20 F F600 F'; do
+  n="feedmissing$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\nG1 X5 F600\\n$c\\nG1 X10\\n"
+  [ "$hrc" = 3 ] && grep -q '^unsupported line 4: ' "$OUT/$n.h"; chk $? "harness refuses '$c' with exit 3 and line number"
+  [ "$mrc" = 3 ] && grep -q '^unsupported line 4: ' "$OUT/$n.merr"; chk $? "model refuses '$c' with exit 3 and line number"
+  [ "$(steps_of "$OUT/$n.h")" = 800,0,0,0 ]; chk $? "harness leaves position unchanged on '$c'"
+  [ "$(steps_of "$OUT/$n.m")" = 800,0,0,0 ]; chk $? "model leaves position unchanged on '$c'"
+  grep -qx 'rblock 1 steps=400,0,0,0 mm=5.000 nominal_speed=10.00' "$OUT/$n.h"; chk $? "harness keeps prior feed after '$c'"
+  grep -qx 'rblock 1 steps=400,0,0,0 mm=5.000 nominal_speed=10.00' "$OUT/$n.m"; chk $? "model keeps prior feed after '$c'"
+done
+# A numbered final F still wins, even after a valueless or earlier valued F.
+for c in 'G1 X10 F F1200' 'G0 X10 F600 F F1200'; do
+  n="feedlast$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$c\\n"
+  both_steps "$n" '800,0,0,0' "'$c' uses the final valued F"
+  grep -qx 'rblock 0 steps=800,0,0,0 mm=10.000 nominal_speed=20.00' "$OUT/$n.h"; chk $? "harness uses final F1200 in '$c'"
+  grep -qx 'rblock 0 steps=800,0,0,0 mm=10.000 nominal_speed=20.00' "$OUT/$n.m"; chk $? "model uses final F1200 in '$c'"
+done
+
+# 14. Marlin changes feed only for floatval('F') > 0. Nonpositive values keep it.
+for f in '0' '-600'; do
+  for g in G0 G1; do
+    n="feednonpositive${g}$(echo "$f" | tr -dc '0-9')"
+    run_pair "$n" "G90\\nM82\\nG1 X5 F600\\n$g X10 F$f\\nG1 X15\\n"
+    both_steps "$n" '1200,0,0,0' "'$g X10 F$f' keeps valid motion"
+    for i in 1 2; do
+      grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/$n.h"; chk $? "harness preserves feed at block $i after '$g X10 F$f'"
+      grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/$n.m"; chk $? "model preserves feed at block $i after '$g X10 F$f'"
+    done
+  done
+done
+
+# 15. A negative F outside binary32 still keeps the previous feed, without a model traceback.
+run_pair feednegativeoverflow 'G90\nM82\nG1 X5 F600\nG1 X10 F-400000000000000000000000000000000000000\nG1 X15\n'
+both_steps feednegativeoverflow '1200,0,0,0' 'negative F beyond binary32 keeps valid motion'
+for i in 1 2; do
+  grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.h"; chk $? "harness keeps prior feed for huge negative F, block $i"
+  grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.m"; chk $? "model keeps prior feed for huge negative F, block $i"
+done
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]

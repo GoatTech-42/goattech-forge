@@ -194,22 +194,24 @@ static int replay_gcode(const char *path, bool print_blocks) {
     // Compare letter and number separately: a packed key such as
     // letter*1000 + number would make F1092 equal to G92.
     auto is = [&](const char c, const int n) { return cmd == c && num == n; };
-    // An X/Y/Z/E word whose last occurrence has no number ("G1 X", "G1 X10 X").
+    // An X/Y/Z/E/F word whose last occurrence has no number ("G1 X", "G1 X10 X").
     // Pinned Marlin keeps the last occurrence of a letter (FASTER_GCODE_PARSER,
     // parser.cpp set()) and get_destination_from_command() reads each axis with
     // parser.seenval(), which is false then, so that axis keeps its position.
+    // The feed-rate reader uses floatval('F') > 0 (floatval calls seenval),
+    // keeping the prior feed rate when F has no number.
     // That is a defined firmware reading, not a bug, but it is outside the
     // modelled subset: refuse the line before the feed rate or any position changes.
     char novalue = 0;
     if (cmd == 'G' && (num == 0 || num == 1))
-      for (const char a : { 'X', 'Y', 'Z', 'E' }) if (has[a - 'A'] && !hasval[a - 'A']) { novalue = a; break; }
+      for (const char a : { 'X', 'Y', 'Z', 'E', 'F' }) if (has[a - 'A'] && !hasval[a - 'A']) { novalue = a; break; }
     if (novalue) {
-      printf("unsupported line %ld: G%d %c without a value (not modelled; Marlin's seenval() leaves that axis where it is)\n",
+      printf("unsupported line %ld: G%d %c without a value (not modelled; Marlin's seenval() leaves that setting unchanged)\n",
         lineno, num, novalue);
       ++unsupported;
     }
     else if (cmd == 'G' && (num == 0 || num == 1)) {
-      if (has['F' - 'A']) feed = v['F' - 'A'] / 60.0f;
+      if (has['F' - 'A'] && v['F' - 'A'] > 0) feed = v['F' - 'A'] / 60.0f;
       const bool e_relative = e_mode == 2 ? true : e_mode == 1 ? false : rel_e;
       xyze_pos_t t = pos;
       if (has['X' - 'A']) t.x = rel_xyz ? pos.x + v['X' - 'A'] : v['X' - 'A'];

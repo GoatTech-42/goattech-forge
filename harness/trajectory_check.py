@@ -31,6 +31,8 @@ def cells_along(x0, y0, x1, y1):
     return seen
 
 x = y = z = e = 0.0
+# Marlin: G90/G91 set XYZ and E together (G91 makes E relative, G90 absolute),
+# then M82/M83 override E until the next G90/G91.
 abs_xyz, abs_e = True, True
 retracted = False
 collisions, desc_bad, bounds_bad = 0, 0, 0
@@ -46,8 +48,8 @@ for raw in data.split('\n'):
     for p in parts[1:]:
         m = re.match(r'^([A-Za-z])(-?[0-9.]+)$', p)
         if m: args[m.group(1).upper()] = float(m.group(2))
-    if cmd == 'G90': abs_xyz = True
-    elif cmd == 'G91': abs_xyz = False
+    if cmd == 'G90': abs_xyz = abs_e = True
+    elif cmd == 'G91': abs_xyz = abs_e = False
     elif cmd == 'M82': abs_e = True
     elif cmd == 'M83': abs_e = False
     elif cmd == 'G28': x = y = z = 0.0
