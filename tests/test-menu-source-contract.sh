@@ -8,11 +8,16 @@ fails=0
 check() { if "$@"; then echo "PASS: $*"; else echo "FAIL: $*"; fails=$((fails+1)); fi; }
 for script in test-menu-source.sh test-diag-menu-source.sh; do
   check bash "$ROOT/tests/$script" "$TREE" --source-only
-  if bash "$ROOT/tests/$script" "$TREE" "$OUT/missing.bin" >"$OUT/missing.log" 2>&1; then
-    echo "FAIL: $script accepts a missing binary"; fails=$((fails+1))
-  else
-    echo "PASS: $script refuses a missing binary"
-  fi
+  touch "$OUT/empty.bin"
+  for binary in "$OUT/missing.bin" "$OUT/empty.bin"; do
+    rc=0
+    bash "$ROOT/tests/$script" "$TREE" "$binary" >"$OUT/binary.log" 2>&1 || rc=$?
+    if [ "$rc" = 2 ]; then
+      echo "PASS: $script refuses $binary with exit 2"
+    else
+      echo "FAIL: $script expected exit 2 for $binary, got $rc"; fails=$((fails+1))
+    fi
+  done
 done
 # Copy only files the diagnostics source check reads. Mutate that scratch copy.
 for p in Marlin/src/lcd/dwin/creality/{dwin.cpp,dwin.h,dwin_lcd.h}; do
@@ -37,5 +42,29 @@ elif grep -q '^FAIL: no tuning-target suggestion language' "$OUT/mutant.log"; th
 else
   cat "$OUT/mutant.log"; echo 'FAIL: mutant failed for an unrelated reason'; fails=$((fails+1))
 fi
+# Force command errors only in the forbidden-text assertion, not prior checks.
+mkdir -p "$OUT/bin"
+REAL_AWK="$(command -v awk)"; export REAL_AWK
+REAL_GREP="$(command -v grep)"; export REAL_GREP
+cat > "$OUT/bin/awk" <<'STUB'
+#!/usr/bin/env bash
+if [ "${CHECK_ERROR:-}" = awk ] && [[ "$*" = *'Forge Diagnostics review screen'* ]]; then exit 2; fi
+exec "$REAL_AWK" "$@"
+STUB
+cat > "$OUT/bin/grep" <<'STUB'
+#!/usr/bin/env bash
+if [ "${CHECK_ERROR:-}" = grep ] && [[ "$*" = *'recommend'* ]]; then exit 2; fi
+exec "$REAL_GREP" "$@"
+STUB
+chmod +x "$OUT/bin/awk" "$OUT/bin/grep"
+for command in awk grep; do
+  rc=0
+  PATH="$OUT/bin:$PATH" CHECK_ERROR="$command" bash "$ROOT/tests/test-diag-menu-source.sh" "$TREE" --source-only >"$OUT/error.log" 2>&1 || rc=$?
+  if [ "$rc" = 1 ] && grep -q '^FAIL: no tuning-target suggestion language' "$OUT/error.log"; then
+    echo "PASS: $command error fails closed"
+  else
+    echo "FAIL: $command error does not fail closed (exit $rc)"; fails=$((fails+1))
+  fi
+done
 printf 'RESULT: %s contract failure(s)\n' "$fails"
 [ "$fails" = 0 ]
