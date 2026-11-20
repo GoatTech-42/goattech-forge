@@ -368,6 +368,11 @@ int main(int argc, char **argv) {
   printf("hotend clamp=%d max_target=%d\n", thermalManager.degTargetHotend(0), thermalManager.hotend_max_target(0));
   thermalManager.setTargetBed(60);
   printf("bed target=%d\n", thermalManager.degTargetBed());
+  for (const celsius_t requested : { 115, 116, 125 }) {
+    thermalManager.setTargetBed(requested);
+    printf("bed requested=%d target=%d max_target=%d\n", requested,
+      thermalManager.degTargetBed(), BED_MAX_TARGET);
+  }
   const raw_adc_t raws[] = { 1000, 4000, 8000, 12000, 15000 };
   for (const raw_adc_t r : raws)
     printf("thermistor raw=%u hotend_c=%.1f bed_c=%.1f\n", (unsigned)r,
