@@ -7,6 +7,8 @@
 #          chain (closed file -> read -1 -> 5 SD errors -> abortFilePrintNow).
 #          Source-derived model, NOT firmware execution: on-printer behavior
 #          test stays pending (compile != validation).
+# Containment is a narrow pinned-region lexical check: line splices and digit
+# separators inside Goto_MainMenu are refused by design, pending source review.
 set -u
 TREE="${1:?usage: test-74-sdclose.sh <marlin-tree>}"
 DWIN="$TREE/Marlin/src/lcd/dwin/creality/dwin.cpp"
@@ -34,13 +36,23 @@ def need(cond,msg):
     ok = ok and cond
 
 # --- Literal pinned-source containment contract ---
-# Remove comments and literals before finding the definition, so neither a
+# Strip comments/literals inside the pinned function region so neither a
 # warning comment nor a string can satisfy executable-source checks. This is
 # deliberately a narrow spelling/shape contract, not a C++ parser or proof of
 # preprocessor/runtime behavior. New valid source shapes need explicit review.
-lexical = r'//(?:\\\r?\n|[^\n])*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+# This narrow region spelling is intentional: reject unfamiliar source shapes
+# for review rather than claim C++ translation-phase correctness.
+regions = re.findall(r'^void Goto_MainMenu\(\)\n\{[\s\S]*?^\}', dwin, re.M)
+need(len(regions) == 1, 'Goto_MainMenu closefile containment contract: literal region')
+region = regions[0] if len(regions) == 1 else ''
+unsupported = (re.search(r'\\\r?\n', region) is not None
+               or re.search(r"[0-9A-Fa-f]'[0-9A-Za-z]", region) is not None)
+need(not unsupported,
+     'Goto_MainMenu closefile containment contract: unsupported lexical construct '
+     '(line splice or digit separator requires review)')
+lexical = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
 raw_literal = r'(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\r\n]{0,16})\([\s\S]*?\)(?P=delimiter)"'
-code = re.sub(raw_literal + '|' + lexical, ' ', dwin)
+code = re.sub(raw_literal + '|' + lexical, ' ', region)
 defs = list(re.finditer(r'\bvoid\s+Goto_MainMenu\s*\(\s*\)\s*\{', code))
 body = ''
 if len(defs) == 1:
