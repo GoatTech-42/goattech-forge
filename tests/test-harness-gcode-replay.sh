@@ -353,6 +353,14 @@ for f in '0' '-600'; do
     done
   done
 done
+
+# 15. A negative F outside binary32 still keeps the previous feed, without a model traceback.
+run_pair feednegativeoverflow 'G90\nM82\nG1 X5 F600\nG1 X10 F-400000000000000000000000000000000000000\nG1 X15\n'
+both_steps feednegativeoverflow '1200,0,0,0' 'negative F beyond binary32 keeps valid motion'
+for i in 1 2; do
+  grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.h"; chk $? "harness keeps prior feed for huge negative F, block $i"
+  grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.m"; chk $? "model keeps prior feed for huge negative F, block $i"
+done
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
