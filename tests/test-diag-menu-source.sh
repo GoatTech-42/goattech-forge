@@ -93,7 +93,13 @@ bad=$(awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "
 chk "all diagnostics literals <= 24 chars (fit 240px from LBLX 42)" $?
 
 # 8. no auto-suggested tuning targets (review obligation)
-! awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "$D" | grep -qi 'recommend\|suggested\|try [0-9].*hz\|set.*shaper to'
+suggestion_rc=2
+if diagnostics_text=$(awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "$D"); then
+  printf '%s\n' "$diagnostics_text" | grep -qi 'recommend\|suggested\|try [0-9].*hz\|set.*shaper to'
+  suggestion_rc=$?
+fi
+# Only grep's explicit no-match status passes. Extraction and grep errors fail.
+[ "$suggestion_rc" -eq 1 ]
 chk "no tuning-target suggestion language in diagnostics block" $?
 
 # 9. HMI wiring: enter case in HMI_Motion + dispatcher cases
