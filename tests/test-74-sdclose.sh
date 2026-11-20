@@ -39,7 +39,8 @@ def need(cond,msg):
 # deliberately a narrow spelling/shape contract, not a C++ parser or proof of
 # preprocessor/runtime behavior. New valid source shapes need explicit review.
 lexical = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
-code = re.sub(lexical, ' ', dwin)
+raw_literal = r'(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\r\n]{0,16})\([\s\S]*?\)(?P=delimiter)"'
+code = re.sub(raw_literal + '|' + lexical, ' ', dwin)
 defs = list(re.finditer(r'\bvoid\s+Goto_MainMenu\s*\(\s*\)\s*\{', code))
 body = ''
 if len(defs) == 1:
