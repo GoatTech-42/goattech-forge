@@ -35,6 +35,9 @@ block 5 steps=800,0,0,715 events=800 mm=10.000 nominal_speed=30.00 nominal_rate=
 hotend target=210
 hotend clamp=300 max_target=300
 bed target=60
+bed requested=115 target=115 max_target=115
+bed requested=116 target=115 max_target=115
+bed requested=125 target=115 max_target=115
 thermistor raw=1000 hotend_c=233.5 bed_c=209.6
 thermistor raw=4000 hotend_c=153.9 bed_c=138.6
 thermistor raw=8000 hotend_c=112.2 bed_c=102.2
