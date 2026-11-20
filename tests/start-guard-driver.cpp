@@ -31,9 +31,9 @@ struct FileStub {
     ++reads;
     if (fail_read) return -1;
     uint32_t n = std::min<uint32_t>(count, content.size() - pos);
-    if (short_read && n) --n;
     std::memcpy(out, content.data() + pos, n); pos += n;
-    return n;
+    // A reported short count must refuse even if the buffer contains a trailer.
+    return short_read && n ? n - 1 : n;
   }
 };
 struct CardReader {
@@ -56,7 +56,7 @@ static void check(bool ok, const char *label) {
 }
 static CardReader sample() {
   CardReader c;
-  c.myfile.content = std::string(220, ' ');
+  c.myfile.content = std::string(219, ' ') + '\n';
   c.myfile.content += FORGE_DIAG_SENTINEL "\n";
   c.filesize = c.myfile.content.size();
   c.sdpos = c.myfile.pos = 32; // paused mid-file, not the easy seek-to-zero case
@@ -101,8 +101,30 @@ int main() {
   check(!c.flag.sdprinting && c.myfile.pos == c.sdpos, "missing sentinel refused");
   c = sample(); c.myfile.content += "G1 X1\n"; c.filesize = c.myfile.content.size();
   c.startOrResumeFilePrinting();
-  check(c.flag.sdprinting && c.myfile.pos == c.sdpos,
-        "presence-only sentinel policy unchanged, not exact-final-line validation");
+  check(!c.flag.sdprinting && c.myfile.pos == c.sdpos,
+        "commands appended after sentinel refused");
+  for (const char *trailer : { FORGE_DIAG_SENTINEL, FORGE_DIAG_SENTINEL "suffix\n",
+                               "x" FORGE_DIAG_SENTINEL "\n", FORGE_DIAG_SENTINEL "\n\n" }) {
+    c = sample(); c.myfile.content = std::string(220, ' ') + trailer;
+    c.filesize = c.myfile.content.size(); c.startOrResumeFilePrinting();
+    check(!c.flag.sdprinting && c.myfile.pos == c.sdpos,
+          "missing newline, suffix, non-line marker or extra newline refused");
+  }
+  c = sample(); c.myfile.content = FORGE_DIAG_SENTINEL "\n";
+  c.filesize = c.myfile.content.size(); c.sdpos = c.myfile.pos = 0;
+  c.startOrResumeFilePrinting();
+  check(c.flag.sdprinting && c.myfile.pos == 0, "exact trailer at file start accepted");
+  c = sample(); c.myfile.content = FORGE_DIAG_SENTINEL;
+  c.filesize = c.myfile.content.size(); c.sdpos = c.myfile.pos = 0;
+  c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting && c.myfile.pos == 0, "short file without final newline refused");
+  c = sample(); c.myfile.content = "";
+  c.filesize = c.sdpos = c.myfile.pos = 0; c.startOrResumeFilePrinting();
+  check(!c.flag.sdprinting && c.myfile.reads == 0, "empty reserved file refused");
+  c = sample(); c.myfile.name = "NORMAL.G"; c.myfile.content = "G1 X1\n";
+  c.filesize = c.myfile.content.size(); c.sdpos = c.myfile.pos = 0;
+  c.startOrResumeFilePrinting();
+  check(c.flag.sdprinting && c.myfile.seeks == 0, "ordinary file needs no diagnostic trailer");
   c = sample(); c.myfile.name = "FORGDIA1.BAK";
   c.startOrResumeFilePrinting();
   check(!c.flag.sdprinting && c.myfile.reads == 0, "reserved recovery backup is never printable");
