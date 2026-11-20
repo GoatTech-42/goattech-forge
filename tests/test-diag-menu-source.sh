@@ -1,12 +1,20 @@
 #!/bin/bash
 # GoatTech Forge - source-level verification for the DWIN Forge Diagnostics menu.
-# Usage: test-diag-menu-source.sh <marlin_tree> <firmware_bin>
+# Usage: test-diag-menu-source.sh <marlin_tree> <firmware_bin|--source-only>
 # Static source assertions + compiled-binary string evidence.
 # HONEST SCOPE: compilation and static wiring only. Nothing here proves
 # on-printer behavior; the generator it invokes was verified offline
 # (host harness + independent review), not on hardware.
 set -u
+[ "$#" -eq 2 ] || { echo "usage: $0 <patched-marlin-tree> <firmware-bin|--source-only>" >&2; exit 2; }
 T="$1"; B="$2"
+SOURCE_ONLY=false
+if [ "$B" = --source-only ]; then
+  SOURCE_ONLY=true
+elif [ ! -f "$B" ] || [ ! -r "$B" ] || [ ! -s "$B" ]; then
+  echo "firmware binary must be a readable nonempty file" >&2
+  exit 2
+fi
 D="$T/Marlin/src/lcd/dwin/creality/dwin.cpp"
 H="$T/Marlin/src/lcd/dwin/creality/dwin.h"
 pass=0; fail=0
@@ -85,7 +93,7 @@ bad=$(awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "
 chk "all diagnostics literals <= 24 chars (fit 240px from LBLX 42)" $?
 
 # 8. no auto-suggested tuning targets (review obligation)
-awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "$D" | grep -qi 'recommend\|suggested\|try [0-9].*hz\|set.*shaper to' && false || true
+! awk '/Forge Diagnostics review screen/,/^void HMI_ForgeDiagnostics\(\)/' "$D" | grep -qi 'recommend\|suggested\|try [0-9].*hz\|set.*shaper to'
 chk "no tuning-target suggestion language in diagnostics block" $?
 
 # 9. HMI wiring: enter case in HMI_Motion + dispatcher cases
@@ -105,6 +113,9 @@ chk "DWIN_CREALITY_320_LCD active, 480 commented (240x320 active area)" $?
 grep -q '^#define DWIN_WIDTH  240$' "$L" && grep -q '^#define DWIN_HEIGHT 320$' "$L"
 chk "DWIN_WIDTH 240 / DWIN_HEIGHT 320 confirmed" $?
 
+if $SOURCE_ONLY; then
+  echo 'NOTE: source-only checks; compiled-binary strings NOT checked.'
+else
 # 11. compiled-binary evidence: strings actually in flash
 grep -qa 'FORGDIA1.G' "$B"
 chk "bin contains job-name string FORGDIA1.G" $?
@@ -113,5 +124,6 @@ chk "bin contains menu title string" $?
 grep -qa 'multi-hour' "$B"
 chk "bin contains multi-hour warning string" $?
 
+fi
 echo "diag-menu-source: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

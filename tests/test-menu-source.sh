@@ -1,9 +1,17 @@
 #!/bin/bash
 # GoatTech Forge - source-level verification for the DWIN FT-Motion input-shaping menu.
-# Usage: test-menu-source.sh <marlin_tree> <firmware_bin>
+# Usage: test-menu-source.sh <marlin_tree> <firmware_bin|--source-only>
 # Static source assertions + binary string evidence. No hardware claims.
 set -u
+[ "$#" -eq 2 ] || { echo "usage: $0 <patched-marlin-tree> <firmware-bin|--source-only>" >&2; exit 2; }
 T="$1"; B="$2"
+SOURCE_ONLY=false
+if [ "$B" = --source-only ]; then
+  SOURCE_ONLY=true
+elif [ ! -f "$B" ] || [ ! -r "$B" ] || [ ! -s "$B" ]; then
+  echo "firmware binary must be a readable nonempty file" >&2
+  exit 2
+fi
 D="$T/Marlin/src/lcd/dwin/creality/dwin.cpp"
 C="$T/Marlin/Configuration_adv.h"
 FM="$T/Marlin/src/module/ft_motion.h"
@@ -84,10 +92,14 @@ chk "all four value commits show visible notice when locked" $?
 grep -q '#endif // ENABLED(DWIN_INPUT_SHAPING_MENU)' "$D"
 chk "guard endif comment accurate" $?
 
+if $SOURCE_ONLY; then
+  echo 'NOTE: source-only checks; compiled-binary strings NOT checked.'
+else
 # 11. binary evidence
 for s in 'Input Shaping' 'Shaper type' 'X frequency' 'Y damping' 'X shaper' 'View only while printing' 'Shaping settings saved' 'EEPROM SAVE FAILED' 'FT Motion OFF' 'ZVDDD' 'Locked - value NOT applied'; do
   [ "$(grep -a -c "$s" "$B")" -ge 1 ]
   chk "binary contains '$s'" $?
 done
+fi
 echo "== $pass passed, $fail failed =="
 [ "$fail" -eq 0 ]

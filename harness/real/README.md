@@ -137,3 +137,14 @@ output. `tests/test-harness-build-isolation.sh` and
 `tests/test-harness-spaced-path.sh` cover the scratch-copy and spaced-path
 behaviour of `build-real.sh`. Host simulation only; it is not hardware
 validation.
+
+### Source-only menu checks
+
+`tests/test-menu-source-contract.sh <patched-marlin-tree>` runs the two menu
+source checks with `--source-only` and verifies that the diagnostics check
+rejects an injected tuning suggestion. CI runs this against both pinned board
+trees. Source-only mode does not read a firmware binary or verify its strings.
+The default two-argument mode still requires a readable, nonempty firmware
+binary and checks its strings separately. A synthetic string fixture used by
+the contract test isolates the assertion mutant; it is not compiled evidence.
+None of these source checks validates the on-printer menu or its layout.
