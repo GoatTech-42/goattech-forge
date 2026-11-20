@@ -18,9 +18,14 @@
 # on stderr with its line number and makes the model exit 3 after the totals,
 # so a file the model cannot follow is never reported as checked.
 import math, re, struct, sys
+from decimal import Decimal
 
 def f32(x):  # round to IEEE single, as the firmware's float positions are
     return struct.unpack('<f', struct.pack('<f', x))[0]
+
+# Round-to-nearest-even overflows binary32 at this exact decimal midpoint.
+F32_OVERFLOW = Decimal(2**128 - 2**103)
+F32_MAX = f32((2 - 2**-23) * 2**127)
 
 SPM = [f32(v) for v in (80.0, 80.0, 400.0, 715.12)]
 MAXF = [500.0, 500.0, 20.0, 30.0]
@@ -68,6 +73,7 @@ def main(path, totals_only=False):
         if cmd == 'M117':   # free text, never parsed as words
             continue
         w = {}
+        tokens = {}
         novalue = set()   # letters given without a number
         # Every character after the command must be a word (letter, optional
         # number) or whitespace; anything else, such as a "*7" checksum or a
@@ -84,6 +90,7 @@ def main(path, totals_only=False):
             # A repeated letter keeps its last occurrence, as Marlin's
             # FASTER_GCODE_PARSER does: G92 E E5 is E5, G92 E5 E has no value.
             w[m.group(1).upper()] = float(m.group(2) or 0.0)
+            tokens[m.group(1).upper()] = m.group(2) or '0'
             if m.group(2) is None:
                 novalue.add(m.group(1).upper())
             else:
@@ -106,8 +113,20 @@ def main(path, totals_only=False):
             if missing:
                 refuse(lineno, '%s %s without a value' % (cmd, missing[0]))
                 continue
-            if 'F' in w and w['F'] > 0 and f32(w['F']) > 0:
-                feed = f32(w['F'] / 60.0)
+            if 'F' in w and w['F'] > 0:
+                if Decimal(tokens['F']) >= F32_OVERFLOW:
+                    refuse(lineno, '%s F outside finite binary32 (not modelled)' % cmd)
+                    continue
+                # Binary64 can round a finite decimal up to the overflow
+                # midpoint. The exact token check above already ruled it out.
+                try:
+                    raw_feed = f32(w['F'])
+                except OverflowError:
+                    raw_feed = F32_MAX
+                if not math.isfinite(raw_feed):
+                    raw_feed = F32_MAX
+                if raw_feed > 0:
+                    feed = f32(w['F'] / 60.0)
             t = list(pos)
             for i, a in enumerate('XYZE'):
                 if a in w:
