@@ -56,10 +56,10 @@ index 1949d9c413..da32ac0b53 100644
 +        if (isFileOpen() && filesize) {
 +          const uint32_t tail = filesize < 96 ? filesize : 96;
 +          char buf[97];
-+          myfile.seekSet(filesize - tail);
-+          const int n = myfile.read(buf, tail);
-+          myfile.seekSet(sdpos); // restore the job's read position
-+          if (n > 0) {
++          const bool tail_seek_ok = myfile.seekSet(filesize - tail);
++          const int n = tail_seek_ok ? myfile.read(buf, tail) : -1;
++          const bool restored = myfile.seekSet(sdpos); // restore the job's read position
++          if (n == (int)tail && restored) {
 +            buf[(uint32_t)n < 96 ? n : 96] = '\0';
 +            complete = strstr(buf, FORGE_DIAG_SENTINEL) != nullptr;
 +          }
