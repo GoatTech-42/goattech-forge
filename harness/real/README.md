@@ -158,3 +158,9 @@ declarations, invalid paths and hashes, symlinks, missing files and modified
 patch bytes fail the check. `tests/test-patch-pins.sh` runs scratch-copy
 regressions and checks that CI verifies pins before applying patches. This
 checks repository inputs only, not a compiled binary or hardware behavior.
+
+The verifier also compares the current literal `for p in ...; do` workflow
+sequence against the six verified build declarations, in order. Missing,
+reordered or repeated patch names and multiple patch loops fail. This is a
+contract for the workflow's present literal form, not a general shell parser;
+changing that form requires an explicit verifier and test update.
