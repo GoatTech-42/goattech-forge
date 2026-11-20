@@ -32,7 +32,7 @@ index 1949d9c413..da32ac0b53 100644
  #include "../libs/hex_print.h"
  #include "../lcd/marlinui.h"
  
-@@ -717,6 +719,46 @@ void CardReader::openAndPrintFile(const char *name) {
+@@ -717,6 +719,49 @@ void CardReader::openAndPrintFile(const char *name) {
   */
  void CardReader::startOrResumeFilePrinting() {
    if (isMounted()) {
@@ -65,8 +65,11 @@ index 1949d9c413..da32ac0b53 100644
 +          const int n = tail_seek_ok ? myfile.read(buf, tail) : -1;
 +          const bool restored = myfile.seekSet(sdpos); // restore the job's read position
 +          if (n == (int)tail && restored) {
-+            buf[(uint32_t)n < 96 ? n : 96] = '\0';
-+            complete = strstr(buf, FORGE_DIAG_SENTINEL) != nullptr;
++            const char trailer[] = FORGE_DIAG_SENTINEL "\n";
++            const uint32_t len = sizeof(trailer) - 1;
++            complete = tail >= len
++                    && memcmp(buf + tail - len, trailer, len) == 0
++                    && (filesize == len || (tail > len && buf[tail - len - 1] == '\n'));
 +          }
 +        }
 +        if (!complete) {
