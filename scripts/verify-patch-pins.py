@@ -34,16 +34,38 @@ def verify(root):
     return 6
 
 
+
+def verify_ci_order(root):
+    """Check the current literal workflow loop, not arbitrary shell syntax."""
+    root = pathlib.Path(root)
+    verify(root)
+    build = (root / 'build.sh').read_text()
+    expected = []
+    for number in range(1, 7):
+        suffix = '' if number == 1 else str(number)
+        # verify() has already rejected duplicate or nonliteral declarations.
+        name = re.search(r'^FORGE_PATCH' + suffix + r'="([^"\n]+)"$', build, re.M).group(1)
+        expected.append(pathlib.PurePosixPath(name).stem)
+    workflow = (root / '.github/workflows/patch-chain-tests.yml').read_text()
+    loops = re.findall(r'^ *for p in (.*); do$', workflow, re.M)
+    if len(loops) != 1:
+        raise ValueError('CI must contain exactly one patch loop')
+    if loops[0].split() != expected:
+        raise ValueError('CI patch sequence differs from verified build declarations')
+
+
 def main():
     if len(sys.argv) != 1:
         print('usage: verify-patch-pins.py', file=sys.stderr)
         return 2
     try:
-        count = verify(pathlib.Path(__file__).resolve().parents[1])
+        root = pathlib.Path(__file__).resolve().parents[1]
+        count = verify(root)
+        verify_ci_order(root)
     except (OSError, ValueError) as error:
         print(f'ERROR: {error}', file=sys.stderr)
         return 1
-    print(f'PASS: {count} patch pins match build.sh')
+    print(f'PASS: {count} patch pins and CI sequence match build.sh')
     return 0
 
 
