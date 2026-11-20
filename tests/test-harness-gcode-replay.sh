@@ -406,7 +406,11 @@ done
 run_pair baselinereset "G90\nM82\nM220 S100\nM221 S100\nG1 X10 E1 F600\n"
 [ "$hrc" = 0 ] && [ "$mrc" = 0 ]; chk $? "both accept baseline speed/flow resets"
 for cmd in M220 M221; do
-  for words in S50 S150 S 'S100 T0'; do
+  for value in 100.000001 99.999999; do
+    run_pair fractionalreset "G90\nM82\n$cmd S$value\nG1 X10 E1 F600\n"
+    [ "$hrc" = 0 ] && [ "$mrc" = 0 ]; chk $? "both accept $cmd S$value rounded to binary32 baseline"
+  done
+  for words in S50 S150 S100.00001 S99.99999 S1000000000000000000000000000000000000000 S 'S100 T0'; do
     run_pair refusedoverride "G90\nM82\n$cmd $words\nG1 X10 E1 F600\n"
     [ "$hrc" = 3 ] && [ "$mrc" = 3 ]; chk $? "both refuse unsupported $cmd $words"
   done
