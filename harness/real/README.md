@@ -100,6 +100,9 @@ the firmware leaves that axis where it is. The feed-rate reader checks
 so the previous feed rate is kept. Neither program models that
 bare-word reading. Numbered F words are accepted; as in the pinned firmware,
 zero and negative F keep the previous feed rate and still perform the move.
+Positive F outside finite binary32 is refused by both programs with exit 3 and
+a line number, before the feed rate or position changes. Its nonfinite planner
+behavior is outside the modelled subset; this is not firmware validation.
 When the last occurrence has a number (`G1 X X10`), it is that
 number, in Marlin and in both programs. Word text neither program can
 read, such as a `*7` checksum or a sign with no digits, is refused with exit 3

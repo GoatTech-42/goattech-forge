@@ -211,6 +211,11 @@ static int replay_gcode(const char *path, bool print_blocks) {
       ++unsupported;
     }
     else if (cmd == 'G' && (num == 0 || num == 1)) {
+      if (has['F' - 'A'] && v['F' - 'A'] > 0 && !std::isfinite(v['F' - 'A'])) {
+        printf("unsupported line %ld: G%d F outside finite binary32 (not modelled)\n", lineno, num);
+        ++unsupported;
+        continue;
+      }
       if (has['F' - 'A'] && v['F' - 'A'] > 0) feed = v['F' - 'A'] / 60.0f;
       const bool e_relative = e_mode == 2 ? true : e_mode == 1 ? false : rel_e;
       xyze_pos_t t = pos;
