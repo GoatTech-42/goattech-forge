@@ -181,7 +181,7 @@ index 0000000..395b21e
 +    dtostrf(LADDER_SPEEDS[i] * d.layer_h * d.line_w, 0, 2, fv);
 +    emitf(";   step %s mm/s -> %s mm3/s\n", fs, fv);
 +  }
-+  emit("; accel check: DEFAULT_ACCELERATION 3000 mm/s2, 40mm segments reach 120mm/s (v=sqrt(2*a*L) needs ~2.4mm)\n");
++  emit("; Runtime acceleration settings are not normalized; commanded speeds are not guaranteed.\n");
 +
 +  // 2. Start block (G28 enables leveling with stored mesh: ENABLE_LEVELING_AFTER_G28)
 +  emit("G90\nM82\nM200 S0\nM220 S100\nM221 S100\nG28\n");

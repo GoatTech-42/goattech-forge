@@ -1,5 +1,13 @@
 # Generator component design (forge_diag.cpp) - API facts verified at pins 2026-10-24
 
+## Commanded speed is not a measured speed
+
+The plate does not normalize runtime acceleration settings. Its speed ladder
+commands feed rates, but does not guarantee the printer reaches them. A previous
+M204 setting can change acceleration, and other planner limits also apply. The
+header makes no default-acceleration or 120mm/s reachability claim. This wording
+change sends no M204 and changes no motion commands or hardware settings.
+
 ## Reserved job trailer policy
 
 Starting or resuming `FORGDIA1.G` requires the exact final line
