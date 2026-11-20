@@ -361,6 +361,17 @@ for i in 1 2; do
   grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.h"; chk $? "harness keeps prior feed for huge negative F, block $i"
   grep -qx "rblock $i steps=400,0,0,0 mm=5.000 nominal_speed=10.00" "$OUT/feednegativeoverflow.m"; chk $? "model keeps prior feed for huge negative F, block $i"
 done
+# 16. Positive F beyond finite binary32 is outside the replay subset.
+for g in G0 G1; do
+  n="feedpositiveoverflow$g"
+  run_pair "$n" "G90\nM82\nG1 X5 F600\n$g X50 F400000000000000000000000000000000000000\nG1 X10\n"
+  [ "$hrc" = 3 ] && grep -q '^unsupported line 4: ' "$OUT/$n.h"; chk $? "harness refuses overflowing positive F in $g"
+  [ "$mrc" = 3 ] && grep -q '^unsupported line 4: ' "$OUT/$n.merr"; chk $? "model refuses overflowing positive F in $g"
+  [ "$(steps_of "$OUT/$n.h")" = 800,0,0,0 ]; chk $? "harness leaves position unchanged after overflowing F in $g"
+  [ "$(steps_of "$OUT/$n.m")" = 800,0,0,0 ]; chk $? "model leaves position unchanged after overflowing F in $g"
+  grep -qx 'rblock 1 steps=400,0,0,0 mm=5.000 nominal_speed=10.00' "$OUT/$n.h"; chk $? "harness keeps prior feed after overflowing F in $g"
+  grep -qx 'rblock 1 steps=400,0,0,0 mm=5.000 nominal_speed=10.00' "$OUT/$n.m"; chk $? "model keeps prior feed after overflowing F in $g"
+done
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
