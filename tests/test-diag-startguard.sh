@@ -17,7 +17,7 @@ chk "header included by cardreader"       'grep -q "#include \"../e3v3se/forge_d
 chk "guard inside startOrResume"          'awk "/void CardReader::startOrResumeFilePrinting/,/flag.sdprinting = true/" "$C" | grep -q "Forge diagnostics start guard"'
 chk "guard before sdprinting flag"        '[ $(grep -n "Forge diagnostics start guard" "$C" | cut -d: -f1) -lt $(grep -n "flag.sdprinting = true;" "$C" | head -1 | cut -d: -f1) ]'
 chk "temp name refused"                   'grep -q "strcmp(canon, FORGE_DIAG_TEMP_NAME)" "$C"'
-chk "job name sentinel check"             'grep -q "strcmp(canon, FORGE_DIAG_JOB_NAME)" "$C" && grep -q "strstr(buf, FORGE_DIAG_SENTINEL)" "$C"'
+chk "job name sentinel check"             'grep -q "strcmp(canon, FORGE_DIAG_JOB_NAME)" "$C" && grep -q "memcmp(buf + tail - len, trailer, len)" "$C"'
 chk "canonical case-fold"                 'grep -qF "*p -= '"'"'a'"'"' - '"'"'A'"'"'" "$C"'
 chk "name from opened file (getDosName)"  'grep -qF "myfile.getDosName(canon)" "$C"' 
 chk "read position restored"              'grep -q "myfile.seekSet(sdpos)" "$C"'
