@@ -2,13 +2,16 @@
 // (compiled from the patched tree by harness/build-real.sh) and prints a
 // deterministic report for tests/test-harness-real-planner.sh to check.
 //
-// Usage: harness-real [--steps-x N] [--gcode FILE [--blocks]]
+// Usage: harness-real [--steps-x N] [--gcode FILE [--blocks]] [--emode-table]
 //   --steps-x N  override X steps/mm after loading the config defaults
 //                (used by the test's negative check).
 //   --gcode FILE replay a G-code file through the real Planner instead of the
 //                built-in moves (F1b). Only linear moves and a short list of
 //                no-motion commands are accepted; anything else fails closed.
 //   --blocks     with --gcode, print one line per block the planner produced.
+//   --emode-table print whether E is relative after each of the eight
+//                two-command orderings of {G90,G91} and {M82,M83}, using
+//                Marlin's own GcodeSuite methods (reference for the tests).
 //
 // Host simulation only. Nothing here touches or validates real hardware.
 
@@ -16,6 +19,7 @@
 #include "module/planner.h"
 #include "module/temperature.h"
 #include "harness_hooks.h"
+#include "gcode/gcode.h"
 
 // The host config in harness/config must be the one compiled, never the tree's.
 #if !defined(FORGE_HOST_HARNESS_CONFIG) || !defined(FORGE_HOST_HARNESS_CONFIG_ADV)
@@ -239,6 +243,33 @@ static int replay_gcode(const char *path, bool print_blocks) {
   return unsupported ? 3 : 0;
 }
 
+// ---- E-mode reference: Marlin's own GcodeSuite relative-mode rules ------
+// gcode.cpp is not linked, so define the one static the inline methods use.
+relative_t GcodeSuite::axis_relative;
+
+// G90()/G91() are set_relative_mode(false/true) (gcode.h) and M82()/M83() are
+// set_e_absolute()/set_e_relative() (units/M82_M83.cpp); this applies exactly
+// those inline methods, starting from the constructor's AXIS_RELATIVE_MODES
+// state, and prints GcodeSuite::axis_is_relative(E_AXIS) for each ordering.
+static void emode_apply(const char *c) {
+  if (!strcmp(c, "G90")) GcodeSuite::set_relative_mode(false);
+  else if (!strcmp(c, "G91")) GcodeSuite::set_relative_mode(true);
+  else if (!strcmp(c, "M82")) GcodeSuite::set_e_absolute();
+  else GcodeSuite::set_e_relative();
+}
+
+static int emode_table() {
+  const char * const g[] = { "G90", "G91" }, * const m[] = { "M82", "M83" };
+  for (const char *a : g) for (const char *b : m) for (int order = 0; order < 2; ++order) {
+    GcodeSuite fresh;   // constructor resets axis_relative to AXIS_RELATIVE_MODES
+    (void)fresh;
+    const char *first = order ? b : a, *second = order ? a : b;
+    emode_apply(first); emode_apply(second);
+    printf("emode %s,%s e_relative=%d\n", first, second, (int)GcodeSuite::axis_is_relative(E_AXIS));
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   float steps_x = 0;
   const char *gcode = nullptr; bool print_blocks = false;
@@ -246,7 +277,8 @@ int main(int argc, char **argv) {
     if (!strcmp(argv[i], "--steps-x") && i + 1 < argc) steps_x = atof(argv[++i]);
     else if (!strcmp(argv[i], "--gcode") && i + 1 < argc) gcode = argv[++i];
     else if (!strcmp(argv[i], "--blocks")) print_blocks = true;
-    else { fprintf(stderr, "usage: %s [--steps-x N] [--gcode FILE [--blocks]]\n", argv[0]); return 64; }
+    else if (!strcmp(argv[i], "--emode-table")) return emode_table();
+    else { fprintf(stderr, "usage: %s [--steps-x N] [--gcode FILE [--blocks]] [--emode-table]\n", argv[0]); return 64; }
   }
 
   planner.init();
