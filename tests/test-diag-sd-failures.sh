@@ -16,12 +16,20 @@ run() {
 }
 run >"$OUT/baseline.log" 2>&1 || { cat "$OUT/baseline.log"; exit 1; }
 fails=0
-for mutant in verify_cleanup rename_cleanup rename_ignored refuse_stale; do
+for mutant in backup_gate backup_rename old_delete backup_cleanup verify_cleanup rename_cleanup rename_ignored refuse_stale; do
   python3 - "$OUT/original.cpp" "$OUT/harness/src/e3v3se/forge_diag.cpp" "$mutant" <<'PY'
 import sys
 from pathlib import Path
 s=Path(sys.argv[1]).read_text()
 anchors={
+ 'backup_gate': ('if (card.fileExists(FORGE_DIAG_BACKUP_NAME)) {\n    ui.set_status_P',
+                  'if (false) {\n    ui.set_status_P'),
+ 'backup_rename': ('&& previous.rename(&dir, FORGE_DIAG_BACKUP_NAME);',
+                    '&& (previous.rename(&dir, FORGE_DIAG_BACKUP_NAME), true);'),
+ 'old_delete': ('const bool replacing = card.fileExists(FORGE_DIAG_JOB_NAME);',
+                 'card.removeFile(FORGE_DIAG_JOB_NAME);\n  const bool replacing = false;'),
+ 'backup_cleanup': ('if (card.fileExists(FORGE_DIAG_BACKUP_NAME)) {\n      ui.set_status_P',
+                     'if (false) {\n      ui.set_status_P'),
  'verify_cleanup': ('if (!verified) {\n    f.close();\n    card.removeFile(FORGE_DIAG_TEMP_NAME);',
                     'if (!verified) {\n    f.close();'),
  'rename_cleanup': ('if (!f.rename(&dir, FORGE_DIAG_JOB_NAME)) {\n    f.close();\n    card.removeFile(FORGE_DIAG_TEMP_NAME);',

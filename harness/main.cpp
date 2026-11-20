@@ -109,6 +109,9 @@ int main(int argc, char** argv) {
   reset();
   g_fs.files["FORGDIA1.G"] = "old";
   expect(forge_diag::generate_plate(p, true), "existing job overwritten with allow_overwrite");
+  expect(g_fs.files.count("FORGDIA1.G") == 1 && g_fs.files.at("FORGDIA1.G") != "old"
+         && g_fs.files.count("FORGDIA1.BAK") == 0,
+         "successful replacement publishes new bytes and clears backup");
 
   // 4. SD write failure mid-plate: fail-closed (temp removed, nothing published).
   reset();
@@ -147,8 +150,8 @@ int main(int argc, char** argv) {
   };
   for (auto& failure : sd_failures) {
     reset();
-    // Rename is tested without an old job: replacing an existing job removes
-    // it before rename, so preservation after rename failure is not promised.
+    // This matrix tests fresh publish failure; replacement backup failures
+    // are covered separately below.
     if (failure.which != 4) g_fs.files["FORGDIA1.G"] = "previous job";
     switch (failure.which) {
       case 0: g_fs.fail_write_open = true; break;
@@ -169,6 +172,60 @@ int main(int argc, char** argv) {
              "SD failure: previous job untouched before replacement");
     else
       expect(g_fs.files.empty(), "SD failure: rename failure leaves no new job");
+  }
+
+  // A pre-mutation publish failure must retain the previous bytes as backup.
+  reset();
+  g_fs.files["FORGDIA1.G"] = "previous complete plate";
+  g_fs.fail_rename_at = 2;
+  expect(!forge_diag::generate_plate(p, true), "SD failure: replacement publish refuses on rename failure");
+  expect(g_fs.files.count("FORGDIA1.BAK") == 1 &&
+         g_fs.files.at("FORGDIA1.BAK") == "previous complete plate",
+         "SD failure: previous bytes retained in backup after publish failure");
+  expect(g_fs.files.count("FORGDIA1.TMP") == 0,
+         "SD failure: failed replacement temp cleaned");
+  g_fs.fail_rename_at = 0;
+  const auto retained = g_fs.files;
+  g_fs.calls.clear();
+  expect(!forge_diag::generate_plate(p, true), "SD recovery: backup requires manual recovery before retry");
+  expect(g_fs.files == retained && !called("openFileWrite"),
+         "SD recovery: existing backup blocks all generation without mutation");
+
+  reset();
+  g_fs.files["FORGDIA1.G"] = "previous complete plate";
+  g_fs.fail_rename_at = 1;
+  expect(!forge_diag::generate_plate(p, true), "SD failure: backup rename failure refuses replacement");
+  expect(g_fs.files.count("FORGDIA1.G") == 1 &&
+         g_fs.files.at("FORGDIA1.G") == "previous complete plate" &&
+         !called("rename-attempt->FORGDIA1.G"),
+         "SD failure: pre-mutation backup failure preserves job and skips publish");
+
+  reset();
+  g_fs.files["FORGDIA1.G"] = "previous complete plate";
+  g_fs.fail_open_name = "FORGDIA1.G";
+  expect(!forge_diag::generate_plate(p, true), "SD failure: unreadable previous job refuses replacement");
+  expect(g_fs.files.count("FORGDIA1.G") == 1 &&
+         g_fs.files.at("FORGDIA1.G") == "previous complete plate" && g_fs.rename_calls == 0,
+         "SD failure: backup open failure preserves job and skips all renames");
+
+  reset();
+  g_fs.files["FORGDIA1.G"] = "previous complete plate";
+  g_fs.fail_remove_name = "FORGDIA1.BAK";
+  expect(!forge_diag::generate_plate(p, true), "SD failure: backup cleanup failure is reported");
+  expect(g_fs.files.count("FORGDIA1.G") == 1 &&
+         g_fs.files.at("FORGDIA1.G").size() == forge_diag::estimate_plate_bytes(p) &&
+         g_fs.files.count("FORGDIA1.BAK") == 1 &&
+         g_fs.files.at("FORGDIA1.BAK") == "previous complete plate",
+         "SD failure: cleanup failure keeps both published job and previous bytes");
+
+  for (bool job_exists : { false, true }) {
+    reset();
+    g_fs.files["FORGDIA1.BAK"] = "unresolved previous bytes";
+    if (job_exists) g_fs.files["FORGDIA1.G"] = "current job";
+    const auto before = g_fs.files;
+    expect(!forge_diag::generate_plate(p, true), "SD recovery: stale backup refuses generation");
+    expect(g_fs.files == before && !called("openFileWrite"),
+           "SD recovery: ambiguous backup and job state left untouched");
   }
 
   // Recover in the same process without resetting generator or filesystem.
