@@ -38,6 +38,7 @@ jobs:
           set -euo pipefail
           T="$RUNNER_TEMP/marlin"
           bash tests/test-74-sdclose.sh "$T"
+          bash tests/test-74-sdclose-contract.sh "$T"
           bash tests/test-config-restore.sh "$T"
           bash tests/test-diag-startguard.sh "$T"
           bash tests/test-upstream-fixes.sh "$T"
