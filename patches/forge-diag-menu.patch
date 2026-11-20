@@ -194,14 +194,14 @@
 +    {
 +      checkkey = ForgeDiagnostics;
 +      EncoderRate.enabled = false;
-+      LIMIT(val, 0, BED_MAXTEMP);
++      LIMIT(val, 0, BED_MAX_TARGET);
 +      forge_diag_params.temp_bed = (uint16_t)(val + 0.5f);
 +      forge_diag_overwrite_pending = false; // any param change disarms a pending overwrite confirm
 +      DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Color_Bg_Black, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, (uint16_t)val);
 +      Draw_ForgeDiagReview();
 +      break;
 +    }
-+    LIMIT(val, 0, BED_MAXTEMP);
++    LIMIT(val, 0, BED_MAX_TARGET);
 +    DWIN_Draw_IntValue(true, true, 0, font8x16, Color_White, Select_Color, 3, VALUERANGE_X, MBASE(FORGEDIAG_CASE_TEMPB) + 3, (uint16_t)val);
 +    break;
 +  default:
