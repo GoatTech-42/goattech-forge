@@ -7,7 +7,15 @@
 #  2. generated diagnostics plates (the real forge_diag emission, 3 nozzle
 #     variants): block count and total steps per axis match the model;
 #  3. negative checks: wrong X steps/mm, an edited move and an unsupported
-#     command (G2) are all caught.
+#     command (G2) are all caught;
+#  4. parser edge cases read the same way by harness and model;
+#  5-10. E-only G92 keeps the X/Y/Z baseline, other G92 forms and unknown
+#     commands fail closed in both programs, half-step E resets, short X/Y/Z
+#     segments with extrusion, the supported-command subset, and the E mode
+#     after each G90/G91 and M82/M83 ordering against Marlin's own GcodeSuite;
+#  11. review cases: packed command keys, G28 E resync, unreadable word text,
+#     repeated G92 E words;
+#  12. G0/G1 axis words with no value are refused without changing state.
 # Host simulation only: no stepper ISR, no heaters, no time. Not hardware
 # validation.
 set -u
@@ -93,7 +101,7 @@ import sys
 open(sys.argv[1], 'w').write('G28\nG90\nG1 X10 F600 ;' + ' ' * 1500 + 'G1 X100 F600\nG1 X20 F600\n')
 PY
 "$H" --gcode "$OUT/long.gcode" >"$OUT/long.txt"
-grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a comment longer than the read buffer is not replayed as a move (2 moves)"
+grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a 1500-character comment is read whole and its G1 text is not replayed as a move (2 moves)"
 "$H" --gcode "$OUT" >"$OUT/dir.txt" 2>&1; rc=$?
 [ $rc != 0 ]; chk $? "a read error is not reported as success (exit $rc)"
 
@@ -117,6 +125,201 @@ diff <(grep '^rblock ' "$OUT/zero.txt" | sed 's/ nominal_speed=.*//') <(grep '^r
 chk $? "G01 and G1 give the same blocks in harness and model"
 grep -q 'moves=2 ' "$OUT/zero.txt"; chk $? "G01 counts as a move (2 moves)"
 
+# --- 5-10. Supported subset, E-only G92 and short-segment length (F1 PR3)
+# Expected values are derived from the pinned Marlin source, not copied from
+# either program: G92.cpp + motion.cpp sync_plan_position_e() + planner.cpp
+# set_e_position_mm() for G92 E, planner.cpp _populate_block() for the
+# MIN_STEPS_PER_SEGMENT (4) length rule, gcode.h for the relative modes.
+# Step arithmetic is float32 like the firmware: LROUND(float(v) * 715.12f).
+run_pair(){   # run_pair NAME GCODE: harness (--blocks) and model on the same file
+  printf '%b' "$2" >"$OUT/$1.gcode"
+  "$H" --gcode "$OUT/$1.gcode" --blocks >"$OUT/$1.h" 2>&1; hrc=$?
+  python3 "$REF" "$OUT/$1.gcode" >"$OUT/$1.m" 2>"$OUT/$1.merr"; mrc=$?
+}
+steps_of(){ sed -n 's/^replay steps=//p' "$1"; }
+path_of(){ sed -n 's/^replay path_mm=//p' "$1"; }
+both_steps(){   # both_steps NAME EXPECTED_STEPS LABEL: both exit 0 with these totals
+  [ $hrc = 0 ] && [ "$(steps_of "$OUT/$1.h")" = "$2" ]; chk $? "$3: harness exit 0, steps=$2 (got $hrc, $(steps_of "$OUT/$1.h"))"
+  [ $mrc = 0 ] && [ "$(steps_of "$OUT/$1.m")" = "$2" ]; chk $? "$3: model exit 0, steps=$2 (got $mrc, $(steps_of "$OUT/$1.m"))"
+}
+
+# 5. E-only G92 leaves the X/Y/Z step baseline alone. G92.cpp sets only
+#    motion.position.e and calls sync_plan_position_e() ->
+#    planner.set_e_position_mm(), which writes position.e only; and only when
+#    E changes by more than NEAR_ZERO. A deferred sub-4-step X/Y/Z move must
+#    therefore still count from the old baseline after the reset.
+run_pair g92x 'G90\nG1 X0.0125 F600\nG92 E0\nG1 X1 F600\n'
+both_steps g92x 80,0,0,0 "X 1-step deferral survives G92 E0"
+[ "$(path_of "$OUT/g92x.h")" = 1.000 ] && [ "$(path_of "$OUT/g92x.m")" = 1.000 ]
+chk $? "X deferral across G92 E0: path_mm=1.000 in harness and model ($(path_of "$OUT/g92x.h"), $(path_of "$OUT/g92x.m"))"
+run_pair g92y 'G90\nG1 Y0.0125 F600\nG92 E0\nG1 Y1 F600\n'
+both_steps g92y 0,80,0,0 "Y 1-step deferral survives G92 E0"
+run_pair g92z 'G90\nG1 Z0.005 F600\nG92 E0\nG1 Z1 F600\n'      # Z0.005 = 2 steps
+both_steps g92z 0,0,400,0 "Z 2-step deferral survives G92 E0"
+# changed E: E baseline becomes LROUND(5*715.12f)=LROUND(3575.6001)=3576, then
+# E6 is 4291 (4290.7197): 715 E steps; X still counts from 0 (80 steps)
+run_pair g92chg 'G90\nM82\nG1 X0.0125 F600\nG92 E5\nG1 X1 E6 F600\n'
+both_steps g92chg 80,0,0,715 "changed-E G92 E5 resets only E (X keeps its deferral)"
+# unchanged E: G1 E0.002 is 1 step (1.43) and deferred, so motion.position.e
+# is 0.002 while the planner E baseline is still 0. G92 E0.002 changes nothing
+# (NEAR_ZERO), so the next G1 E1 is 715 steps, not 714 from a re-rounded baseline.
+run_pair g92same 'G90\nM82\nG1 E0.002 F600\nG92 E0.002\nG1 E1 F600\n'
+both_steps g92same 0,0,0,715 "unchanged-E G92 is a no-op (deferred E baseline kept)"
+
+# 6. X/Y/Z and other non-E G92 words are refused (exit 3) before any state
+#    change: workspace offsets are on in this config, so real G92 X shifts the
+#    workspace, which neither program models.
+for c in 'G92 X0' 'G92 Y0' 'G92 Z0' 'G92 X0 E0' 'G92 E' 'G92 F100'; do
+  n="g92ref$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\n$c\\nG1 X10 F600\\n"
+  [ $hrc = 3 ] && grep -q '^unsupported line 2: G92' "$OUT/$n.h"; chk $? "harness refuses '$c' with exit 3 and its line number (got $hrc)"
+  grep -q 'unsupported=0' "$OUT/$n.h"; chk $([ $? = 1 ]; echo $?) "harness summary does not report '$c' as supported"
+  [ $mrc = 3 ] && grep -q '^unsupported line 2: G92' "$OUT/$n.merr"; chk $? "model refuses '$c' with exit 3 and its line number (got $mrc)"
+done
+# refused mixed G92 X0 E5 mutates neither X nor E: the next move still counts
+# X 10->20 (800 steps) and E 1->2 (1430-715 = 715 steps)
+run_pair g92mix 'G90\nM82\nG1 X10 E1 F600\nG92 X0 E5\nG1 X20 E2 F600\n'
+[ $hrc = 3 ] && [ "$(steps_of "$OUT/g92mix.h")" = 1600,0,0,1430 ]; chk $? "harness: refused G92 X0 E5 leaves X and E untouched, exit 3 (got $hrc, $(steps_of "$OUT/g92mix.h"))"
+[ $mrc = 3 ] && [ "$(steps_of "$OUT/g92mix.m")" = 1600,0,0,1430 ]; chk $? "model: refused G92 X0 E5 leaves X and E untouched, exit 3 (got $mrc, $(steps_of "$OUT/g92mix.m"))"
+run_pair g92xonly 'G90\nG1 X0.0125 F600\nG92 X5\nG1 X1 F600\n'
+[ $hrc = 3 ] && [ "$(steps_of "$OUT/g92xonly.h")" = 80,0,0,0 ]; chk $? "harness: refused G92 X5 keeps the deferred X baseline, exit 3 (got $hrc, $(steps_of "$OUT/g92xonly.h"))"
+[ $mrc = 3 ] && [ "$(steps_of "$OUT/g92xonly.m")" = 80,0,0,0 ]; chk $? "model: refused G92 X5 keeps the deferred X baseline, exit 3 (got $mrc, $(steps_of "$OUT/g92xonly.m"))"
+
+# 7. E reset values on a half step. float32 products (exact values checked
+#    separately): 3.9385f*715.12f = 2816.5 (exact 2816.50004894),
+#    6.25f*715.12f = 4469.5 (exact 4469.49996948, so double maths would give
+#    4469), 0.5992f*715.12f = 428.49991. LROUND is lroundf: half away from
+#    zero, so 2817, 4470 and 428 steps back to E0, with either sign.
+for c in 3.9385:2817 -3.9385:2817 6.25:4470 -6.25:4470 0.5992:428 -0.5992:428; do
+  v=${c%%:*}; e=${c#*:}; n="g92half$(echo "$v" | tr -dc '0-9')$( [ "${v#-}" = "$v" ] || echo n)"
+  run_pair "$n" "G90\\nM82\\nG92 E$v\\nG1 E0 F600\\n"
+  both_steps "$n" "0,0,0,$e" "G92 E$v then G1 E0 is LROUND half away from zero"
+done
+# queued ordinary moves before an E reset are all counted before it, and a
+# nonzero negative reset works: E -2.5 -> -1.5 is LROUND(-1072.68)-LROUND(-1787.8) = 715
+run_pair g92queue 'G90\nM82\nG1 X10 E1 F600\nG1 X20 E2 F600\nG92 E0\nG1 X30 E1 F600\nG92 E-2.5\nG1 X40 E-1.5 F600\n'
+both_steps g92queue 3200,0,0,2860 "queued moves around G92 E0 and G92 E-2.5"
+grep -q '^rblock 1 steps=800,0,0,715 ' "$OUT/g92queue.h"; chk $? "second queued move before G92 E0 is counted in full (800 X, 715 E)"
+diff <(grep '^rblock ' "$OUT/g92queue.h" | sed 's/ nominal_speed=.*//') <(grep '^rblock ' "$OUT/g92queue.m" | sed 's/ nominal_speed=.*//') >/dev/null
+chk $? "queued G92 case: every block equals the model"
+
+# 8. Block length when X/Y/Z have fewer than MIN_STEPS_PER_SEGMENT steps:
+#    planner.cpp sets block->millimeters = |E mm| when !XYZ_HAS_ENOUGH_STEPS
+#    (no axis >= 4 steps), so a 1-step X with 1 mm E is a 1.000 mm block at
+#    the full 10 mm/s feed, not 0.013 mm.
+tiny(){   # tiny NAME GCODE EXPECTED_RBLOCK0 LABEL
+  run_pair "$1" "G90\\nM82\\n$2\\n"
+  grep -qx "rblock 0 $3" "$OUT/$1.h"; chk $? "$4: harness block is '$3' ($(grep '^rblock 0' "$OUT/$1.h"))"
+  grep -qx "rblock 0 $3" "$OUT/$1.m"; chk $? "$4: model block is '$3' ($(grep '^rblock 0' "$OUT/$1.m"))"
+}
+tiny tinyx 'G1 X0.0125 E1 F600' 'steps=1,0,0,715 mm=1.000 nominal_speed=10.00' "1-step X with E"
+tiny tinyy 'G1 Y0.0125 E1 F600' 'steps=0,1,0,715 mm=1.000 nominal_speed=10.00' "1-step Y with E"
+tiny tinyz 'G1 Z0.005 E1 F600' 'steps=0,0,2,715 mm=1.000 nominal_speed=10.00' "2-step Z with E"
+tiny tiny3 'G1 X0.0375 E1 F600' 'steps=3,0,0,715 mm=1.000 nominal_speed=10.00' "3-step X with E (below the threshold)"
+# at 4 steps the X length counts: 0.050 mm, E limits speed to 30*0.05/1 = 1.5 mm/s
+tiny tiny4 'G1 X0.05 E1 F600' 'steps=4,0,0,715 mm=0.050 nominal_speed=1.50' "4-step X with E (at the threshold)"
+tiny tinyord 'G1 X10 E1 F600' 'steps=800,0,0,715 mm=10.000 nominal_speed=10.00' "ordinary X with E"
+run_pair tinynoe 'G90\nG1 X0.0125 F600\n'
+grep -q 'moves=1 rejected=0 blocks=0 ' "$OUT/tinynoe.h" && grep -q 'moves=1 short_or_zero=1 blocks=0' "$OUT/tinynoe.m"
+chk $? "1-step X with no E is dropped by both (no block)"
+
+# 9. Supported subset: both programs accept exactly the same commands.
+run_pair subset "$(cat "$FIX/replay-subset.gcode")\n"
+[ $hrc = 0 ] && [ $mrc = 0 ]; chk $? "subset fixture (every supported and ignored command) exits 0 in both (got $hrc, $mrc)"
+grep -q 'unsupported=0' "$OUT/subset.h"; chk $? "harness reports no unsupported command in the subset fixture"
+diff <(grep '^rblock ' "$OUT/subset.h" | sed 's/ nominal_speed=.*//') <(grep '^rblock ' "$OUT/subset.m" | sed 's/ nominal_speed=.*//') >/dev/null
+chk $? "subset fixture gives the same blocks in harness and model ($(grep -c '^rblock ' "$OUT/subset.h") blocks)"
+python3 "$REF" "$FIX/replay-unsupported.gcode" >"$OUT/unsup.m" 2>"$OUT/unsup.merr"; rc=$?
+[ $rc = 3 ]; chk $? "model fails closed on the G2 fixture with exit 3 (got $rc)"
+grep -qx 'unsupported line 5: G2' "$OUT/unsup.merr"; chk $? "model names the unsupported G2 with its line number"
+for c in 'G2 X20 Y20 I5 J5' 'G3 X20 Y20 I5 J5' 'G20' 'G29' 'G999' 'M203 X100' 'M220 S50' 'M999' 'T1'; do
+  n="unsup$(echo "$c" | cut -d' ' -f1)"
+  run_pair "$n" "G90\\n$c\\nG1 X10 F600\\n"
+  [ $hrc = 3 ]; chk $? "harness refuses '$c' with exit 3 (got $hrc)"
+  [ $mrc = 3 ] && grep -q "^unsupported line 2: $(echo "$c" | cut -d' ' -f1)" "$OUT/$n.merr"; chk $? "model refuses '$c' with exit 3 and its line number (got $mrc)"
+done
+
+# 10. E mode after every ordering of G90/G91 with M82/M83: Marlin's own
+#     GcodeSuite methods (harness-real --emode-table) are the reference;
+#     E_MODE_ABS/E_MODE_REL win until the next G90/G91 clears them.
+"$H" --emode-table >"$OUT/emode.txt"; rc=$?
+[ $rc = 0 ] && [ "$(grep -c '^emode ' "$OUT/emode.txt")" = 8 ]; chk $? "real GcodeSuite E-mode table has 8 orderings (exit $rc)"
+for a in G90 G91 M82 M83; do for b in G90 G91 M82 M83; do
+  [ "${a:0:1}" = "${b:0:1}" ] && continue
+  ref=$(sed -n "s/^emode $a,$b e_relative=//p" "$OUT/emode.txt")
+  hand=0; { [ "$b" = M83 ] || [ "$b" = G91 ]; } && hand=1   # the later command decides
+  [ "$ref" = "$hand" ]; chk $? "$a then $b: GcodeSuite says E relative=$ref (hand reading of gcode.h: $hand)"
+  [ "$ref" = 1 ] && exp=0,0,0,1430 || exp=0,0,0,715
+  run_pair "emode$a$b" "G28\\n$a\\n$b\\nG1 E1 F600\\nG1 E1 F600\\n"
+  both_steps "emode$a$b" "$exp" "$a then $b: two G1 E1 moves"
+done; done
+
+# 11. CodeRabbit review of 30ecaba.
+# 11a. A command is its letter and its number: F1092 is not G92 (the old packed
+#      letter*1000+number key made them equal), nor F1090/F1028 G90/G28, nor
+#      L1082/L1400 M82/M400. All are outside the subset, so both exit 3.
+for c in 'F1092 E5' 'F1090' 'F1028' 'L1082' 'L1400'; do
+  n="pack$(echo "$c" | cut -d' ' -f1)"
+  run_pair "$n" "G90\\nM82\\n$c\\nG1 X10 F600\\n"
+  [ $hrc = 3 ] && grep -q "^unsupported line 3: $(echo "$c" | cut -d' ' -f1)\$" "$OUT/$n.h"; chk $? "harness refuses '$c' as its own command, exit 3 (got $hrc)"
+  [ $mrc = 3 ]; chk $? "model refuses '$c', exit 3 (got $mrc)"
+done
+# 11b. G28 resyncs E as well: homing ends in sync_plan_position(), i.e.
+#      planner.set_position_mm(), which re-rounds every axis. G1 E0.002 is
+#      1 step (1.43) and deferred, so after G28 the E baseline is
+#      LROUND(0.002f*715.12f) = 1 and G1 E1 is 715 - 1 = 714 steps.
+run_pair g28e 'G90\nM82\nG1 E0.002 F600\nG28\nG1 E1 F600\n'
+both_steps g28e 0,0,0,714 "deferred E before G28 is resynced by homing"
+# 11c. Word text the parser cannot read (a checksum, a stray sign) is refused,
+#      not skipped: the harness stops with exit 3 on a bad token, and the
+#      model must not accept the rest of the line either.
+for c in 'G92 E5*7' 'G1 X10*7' 'G1 X10 E-' 'G1 X.' 'M104 S200*7'; do
+  n="junk$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$c\\n"
+  [ $hrc = 3 ]; chk $? "harness refuses unreadable words in '$c', exit 3 (got $hrc)"
+  [ $mrc = 3 ] && grep -q '^unsupported line 3: ' "$OUT/$n.merr"; chk $? "model refuses unreadable words in '$c' with its line number, exit 3 (got $mrc)"
+done
+
+# 11d. A repeated word letter: Marlin's FASTER_GCODE_PARSER (on in this config)
+#      keeps the last occurrence, so G92 E E5 sets E to 5 (back to E0 is
+#      LROUND(5f*715.12f) = 3576 steps), while G92 E5 E ends with no value
+#      and is refused by both programs.
+run_pair dupev 'G90\nM82\nG92 E E5\nG1 E0 F600\n'
+both_steps dupev 0,0,0,3576 "G92 E E5 uses the last E word (E5)"
+run_pair dupve 'G90\nM82\nG92 E5 E\nG1 E0 F600\n'
+[ $hrc = 3 ] && [ $mrc = 3 ]; chk $? "G92 E5 E (last E has no value) is refused by both, exit 3 (got $hrc, $mrc)"
+
+# 12. A G0/G1 axis word with no value. Pinned Marlin (FASTER_GCODE_PARSER)
+#     keeps the last occurrence of a letter, and get_destination_from_command()
+#     reads each axis with parser.seenval(), which is false when that last
+#     occurrence has no number, so the axis keeps its position. Neither
+#     program models that "not given" reading, so a final X/Y/Z/E with no
+#     value is refused (exit 3) before the feed rate or any position changes.
+#     A repeated word whose last occurrence has a value is that value.
+for c in 'G1 X' 'G1 Y' 'G1 Z' 'G1 E' 'G0 X' 'G1 X10 X' 'G1 Y10 Y' 'G1 Z1 Z' 'G1 E1 E'; do
+  n="novalue$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$c\\nG1 X20 F600\\n"
+  cw=$(echo "$c" | cut -d' ' -f1)
+  [ $hrc = 3 ] && grep -q "^unsupported line 3: $cw " "$OUT/$n.h"; chk $? "harness refuses '$c' (last axis word has no value), exit 3 with its line number (got $hrc)"
+  grep -q 'unsupported=0' "$OUT/$n.h"; chk $([ $? = 1 ]; echo $?) "harness summary does not report '$c' as supported"
+  [ $mrc = 3 ] && grep -q "^unsupported line 3: $cw " "$OUT/$n.merr"; chk $? "model refuses '$c' (last axis word has no value), exit 3 with its line number (got $mrc)"
+done
+# guards: the last occurrence has a value, so seenval() reads it
+for c in 'G1 X X10:800,0,0,0' 'G1 Y Y10:0,800,0,0' 'G1 Z Z1:0,0,400,0' 'G1 E E1:0,0,0,715' 'G1 X5 X X10:800,0,0,0'; do
+  g=${c%%:*}; s=${c#*:}; n="lastval$(echo "$g" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$g F600\\n"
+  both_steps "$n" "$s" "'$g' uses the last word's value"
+done
+# a refused line changes nothing: not X, not E, not the feed rate. The next
+# move still runs X 5->10 and E 1->2 at F600 (10 mm/s), so the totals are the
+# two real moves and the last block keeps nominal_speed=10.00.
+run_pair novaluekeep 'G90\nM82\nG1 X5 E1 F600\nG1 X F6000\nG1 Y E F6000\nG1 X10 E2\n'
+[ $hrc = 3 ] && [ "$(steps_of "$OUT/novaluekeep.h")" = 800,0,0,1430 ]; chk $? "harness: refused valueless words leave X and E untouched, exit 3 (got $hrc, $(steps_of "$OUT/novaluekeep.h"))"
+[ $mrc = 3 ] && [ "$(steps_of "$OUT/novaluekeep.m")" = 800,0,0,1430 ]; chk $? "model: refused valueless words leave X and E untouched, exit 3 (got $mrc, $(steps_of "$OUT/novaluekeep.m"))"
+grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novaluekeep.h"; chk $? "harness: feed rate is unchanged after the refused lines ($(grep '^rblock 1' "$OUT/novaluekeep.h"))"
+grep -qx 'rblock 1 steps=400,0,0,715 mm=5.000 nominal_speed=10.00' "$OUT/novaluekeep.m"; chk $? "model: feed rate is unchanged after the refused lines ($(grep '^rblock 1' "$OUT/novaluekeep.m"))"
+grep -q '^unsupported line 4: ' "$OUT/novaluekeep.h" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.h"; chk $? "harness names both refused lines (4 and 5)"
+grep -q '^unsupported line 4: ' "$OUT/novaluekeep.merr" && grep -q '^unsupported line 5: ' "$OUT/novaluekeep.merr"; chk $? "model names both refused lines (4 and 5)"
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
