@@ -116,6 +116,41 @@ int main(int argc, char** argv) {
   expect(!called("rename->FORGDIA1.G"), "no publish after sentinel mismatch");
   expect(g_fs.files.empty(), "no diagnostic files left after sentinel rejection");
 
+  // 7. Inject filesystem failures at the real generator's SD boundaries.
+  // Preserve an existing published job on every failure before replacement.
+  struct { const char* stage; int which; const char* reached; } sd_failures[] = {
+    {"write open", 0, "openFileWrite:FORGDIA1.TMP"},
+    {"verify open", 1, "open-attempt:FORGDIA1.TMP"},
+    {"verify seek", 2, "seekSet"},
+    {"verify read", 3, "read"},
+    {"publish rename", 4, "rename-attempt->FORGDIA1.G"},
+  };
+  for (auto& failure : sd_failures) {
+    reset();
+    // Rename is tested without an old job: replacing an existing job removes
+    // it before rename, so preservation after rename failure is not promised.
+    if (failure.which != 4) g_fs.files["FORGDIA1.G"] = "previous job";
+    switch (failure.which) {
+      case 0: g_fs.fail_write_open = true; break;
+      case 1: g_fs.fail_read_open = true; break;
+      case 2: g_fs.fail_seek = true; break;
+      case 3: g_fs.fail_read = true; break;
+      case 4: g_fs.fail_rename = true; break;
+    }
+    printf("SD boundary: %s\n", failure.stage);
+    expect(!forge_diag::generate_plate(p, true), "SD failure: generator returns false");
+    expect(called(failure.reached), "SD failure: requested boundary reached");
+    expect(!card.isFileOpen(), "SD failure: writer is closed");
+    expect(g_fs.files.count("FORGDIA1.TMP") == 0, "SD failure: no temp file remains");
+    expect(!called("rename->FORGDIA1.G"), "SD failure: no successful publish");
+    if (failure.which != 4)
+      expect(g_fs.files.size() == 1 && g_fs.files.count("FORGDIA1.G") == 1
+             && g_fs.files.at("FORGDIA1.G") == "previous job",
+             "SD failure: previous job untouched before replacement");
+    else
+      expect(g_fs.files.empty(), "SD failure: rename failure leaves no new job");
+  }
+
   printf("HARNESS %s (failures=%d)\n", failures ? "FAILED" : "OK", failures);
   return failures ? 1 : 0;
 }
