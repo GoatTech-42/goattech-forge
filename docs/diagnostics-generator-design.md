@@ -1,5 +1,18 @@
 # Generator component design (forge_diag.cpp) - API facts verified at pins 2026-10-24
 
+## Reserved job trailer policy
+
+Starting or resuming `FORGDIA1.G` requires the exact final line
+`;FORGE_DIAG_COMPLETE` followed by one newline at EOF. The marker must start at
+the file beginning or after a newline. The existing checked tail read and
+cursor restoration still apply. Nonreserved jobs keep their existing behavior.
+
+Cost: hand-edited or legacy reserved files with only a marker substring, no
+final newline, or extra bytes after the trailer are refused. Regenerate the
+plate. This is completeness framing, not authentication or full-content
+integrity. A matching trailer does not prove the rest of the file is safe.
+Host I/O stubs do not validate real SD media or power-loss behavior.
+
 ## Plate speed and flow overrides
 
 The start block sends `M220 S100` and `M221 S100` before motion and extrusion
