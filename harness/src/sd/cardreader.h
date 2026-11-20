@@ -12,6 +12,8 @@ struct FakeFS {
   bool tamper_tail = false;          // corrupt file tail at closefile
   bool fail_write_open = false, fail_read_open = false;
   bool fail_seek = false, fail_read = false, fail_rename = false;
+  int rename_calls = 0, fail_rename_at = 0;
+  std::string fail_open_name, fail_remove_name;
   bool short_read = false; // return a partial verification read
   std::vector<std::string> calls;    // audit log for assertions
 };
@@ -21,7 +23,7 @@ public:
   std::string content, name; size_t pos = 0; bool is_open = false;
   bool open(MediaFile*, const char* n, int) {
     g_fs.calls.push_back(std::string("open-attempt:") + n);
-    if (g_fs.fail_read_open) return false;
+    if (g_fs.fail_read_open || g_fs.fail_open_name == n) return false;
     auto it = g_fs.files.find(n);
     if (it == g_fs.files.end()) return false;
     content = it->second; name = n; pos = 0; is_open = true;
@@ -42,9 +44,10 @@ public:
   }
   bool rename(MediaFile*, const char* n) {
     g_fs.calls.push_back(std::string("rename-attempt->") + n);
-    if (g_fs.fail_rename || !is_open) return false;
+    ++g_fs.rename_calls;
+    if (g_fs.fail_rename || g_fs.rename_calls == g_fs.fail_rename_at || !is_open) return false;
     auto it = g_fs.files.find(name);
-    if (it == g_fs.files.end()) return false;
+    if (it == g_fs.files.end() || g_fs.files.count(n)) return false;
     g_fs.files[n] = it->second; g_fs.files.erase(it); name = n;
     g_fs.calls.push_back(std::string("rename->") + n); return true;
   }
@@ -76,7 +79,10 @@ public:
       if (c.size() > 4) c.replace(c.size() - 4, 4, "XXXX");
     }
   }
-  void removeFile(const char* n) { g_fs.calls.push_back(std::string("removeFile:") + n); g_fs.files.erase(n); }
+  void removeFile(const char* n) {
+    g_fs.calls.push_back(std::string("removeFile:") + n);
+    if (g_fs.fail_remove_name != n) g_fs.files.erase(n);
+  }
   bool fileExists(const char* n) { return g_fs.files.count(n) > 0; }
   bool isMounted() { return mounted; }
   MediaFile& getWorkDir() { return workdir; }
