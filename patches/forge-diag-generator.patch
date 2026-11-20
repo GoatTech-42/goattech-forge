@@ -184,7 +184,7 @@ index 0000000..395b21e
 +  emit("; accel check: DEFAULT_ACCELERATION 3000 mm/s2, 40mm segments reach 120mm/s (v=sqrt(2*a*L) needs ~2.4mm)\n");
 +
 +  // 2. Start block (G28 enables leveling with stored mesh: ENABLE_LEVELING_AFTER_G28)
-+  emit("G90\nM82\nM200 S0\nG28\n");
++  emit("G90\nM82\nM200 S0\nM220 S100\nM221 S100\nG28\n");
 +  emitf("M140 S%u\nM104 S%u\nM190 %c%u\nM109 R%u\n", d.temp_bed, d.temp_nozzle, d.temp_bed ? 'R' : 'S', d.temp_bed, d.temp_nozzle);
 +  g_e = 0.0; g_retracted = false;
 +  emit("G92 E0\n");
