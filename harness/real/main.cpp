@@ -232,6 +232,16 @@ static int replay_gcode(const char *path, bool print_blocks) {
     else if (is('G', 91)) { rel_xyz = rel_e = true; e_mode = 0; }
     else if (is('M', 82)) e_mode = 1;
     else if (is('M', 83)) e_mode = 2;
+    else if (is('M', 200)) {
+      // Only the generated linear-E reset is supported. No D/T/L or S1 modes.
+      bool reset_only = hasval['S' - 'A'] && v['S' - 'A'] == 0;
+      for (int i = 0; i < 26; ++i) if (has[i] && i != 'S' - 'A') reset_only = false;
+      if (reset_only) {
+        parser.volumetric_enabled = false;
+        planner.calculate_volumetric_multipliers();
+      }
+      else { printf("unsupported line %ld: M200 other than S0\n", lineno); ++unsupported; }
+    }
     else if (is('G', 21)) { /* millimetres: already the unit */ }
     else if (is('G', 28)) {
       // Simplified homing: a position reset to 0,0,0 without motion. Let

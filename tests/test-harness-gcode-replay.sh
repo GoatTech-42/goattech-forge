@@ -394,6 +394,14 @@ for g in G0 G1; do
     done
   done
 done
+# 18. Only the generated M200 S0 reset joins the supported subset.
+run_pair linearreset "G90\nM82\nM200 S0\nG1 X10 E1 F600\n"
+[ "$hrc" = 0 ] && [ "$mrc" = 0 ]; chk $? "both accept linear-E M200 S0 reset"
+both_steps linearreset '800,0,0,715' "linear-E reset retains expected extrusion steps"
+for words in S1 D0 'S0 D1.75' 'S0 T0' S; do
+  run_pair refusedvolumetric "G90\nM82\nM200 $words\nG1 X10 E1 F600\n"
+  [ "$hrc" = 3 ] && [ "$mrc" = 3 ]; chk $? "both refuse unsupported M200 $words"
+done
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]

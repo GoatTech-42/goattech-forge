@@ -10,7 +10,7 @@
 # (valid while every segment lasts >= the 20 ms minimum segment time).
 # Accepted subset, the same one harness-real --gcode accepts:
 #   motion/state: G0/G1, G90/G91, M82/M83, G21, G28 (position reset to 0,0,0),
-#                 G92 E<value> or bare G92 (no-op), M400;
+#                 G92 E<value> or bare G92 (no-op), M400, M200 S0 only;
 #   ignored:      G4, M104, M109, M140, M190, M106, M107, M84, M73, M105 and
 #                 M117 (free text).
 # A G0/G1 whose last X, Y, Z or E word has no number is refused too.
@@ -31,7 +31,7 @@ SPM = [f32(v) for v in (80.0, 80.0, 400.0, 715.12)]
 MAXF = [500.0, 500.0, 20.0, 30.0]
 MIN_STEPS = 4   # MIN_STEPS_PER_SEGMENT in harness/config/Configuration_adv.h
 NEAR_ZERO = f32(0.000001)   # Marlin's NEAR_ZERO bound (core/macros.h)
-STATE = {'G0', 'G1', 'G90', 'G91', 'M82', 'M83', 'G21', 'G28', 'G92', 'M400'}
+STATE = {'G0', 'G1', 'G90', 'G91', 'M82', 'M83', 'G21', 'G28', 'G92', 'M400', 'M200'}
 WORD = re.compile(r'([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))?')
 IGNORED = {'G4', 'M104', 'M109', 'M140', 'M190', 'M106', 'M107', 'M84', 'M73', 'M105', 'M117'}
 
@@ -164,6 +164,10 @@ def main(path, totals_only=False):
         elif cmd == 'G91': relxyz = rele = True; emode = 0
         elif cmd == 'M82': emode = 1
         elif cmd == 'M83': emode = 2
+        elif cmd == 'M200':
+            if set(w) != {'S'} or 'S' in novalue or w['S'] != 0:
+                refuse(lineno, 'M200 other than S0')
+            # Linear E is this model's baseline. Other M200 modes are refused.
         elif cmd == 'G28':
             # Simplified homing as in the replay: X/Y/Z to 0, then every axis
             # resynced (sync_plan_position() -> set_position_mm()), so E is
