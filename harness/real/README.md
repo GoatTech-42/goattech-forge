@@ -148,3 +148,13 @@ The default two-argument mode still requires a readable, nonempty firmware
 binary and checks its strings separately. A synthetic string fixture used by
 the contract test isolates the assertion mutant; it is not compiled evidence.
 None of these source checks validates the on-printer menu or its layout.
+
+### Offline patch-pin contract
+
+Before source CI applies any Forge patch, `scripts/verify-patch-pins.py` checks
+all six literal patch paths and SHA256 declarations in `build.sh`. It reads
+those declarations as data, never as shell code. Missing, duplicate or dynamic
+declarations, invalid paths and hashes, symlinks, missing files and modified
+patch bytes fail the check. `tests/test-patch-pins.sh` runs scratch-copy
+regressions and checks that CI verifies pins before applying patches. This
+checks repository inputs only, not a compiled binary or hardware behavior.
