@@ -19,6 +19,9 @@ class PatchPins(unittest.TestCase):
         self.root = pathlib.Path(self.temp.name)
         shutil.copy(ROOT/'build.sh', self.root/'build.sh')
         shutil.copytree(ROOT/'patches', self.root/'patches')
+        (self.root/'.github/workflows').mkdir(parents=True)
+        shutil.copy(ROOT/'.github/workflows/patch-chain-tests.yml', self.root/'.github/workflows/patch-chain-tests.yml')
+        self.workflow = self.root/'.github/workflows/patch-chain-tests.yml'
         self.build = self.root/'build.sh'
         self.patch = self.root/'patches/forge-diag-menu.patch'
 
@@ -27,6 +30,28 @@ class PatchPins(unittest.TestCase):
 
     def test_clean(self):
         self.assertEqual(pins.verify(self.root), 6)
+
+    def test_ci_order_matches(self):
+        pins.verify_ci_order(self.root)
+
+    def test_ci_missing_reordered_duplicate(self):
+        original = self.workflow.read_text()
+        first = 'forge-dwin-input-shaping-menu'
+        second = 'forge-74-sdclose-guard'
+        variants = (original.replace(first+' ', '', 1),
+                    original.replace(first+' '+second, second+' '+first, 1),
+                    original.replace(first+' ', first+' '+first+' ', 1))
+        for changed in variants:
+            with self.subTest(workflow=changed):
+                self.workflow.write_text(changed)
+                with self.assertRaisesRegex(ValueError, 'CI patch sequence'):
+                    pins.verify_ci_order(self.root)
+        self.workflow.write_text(original)
+
+    def test_ci_duplicate_loop(self):
+        self.workflow.write_text(self.workflow.read_text()+'\n          for p in extra; do\n')
+        with self.assertRaisesRegex(ValueError, 'exactly one patch loop'):
+            pins.verify_ci_order(self.root)
 
     def test_each_patch_tamper(self):
         for path in (self.root/'patches').glob('*.patch'):
