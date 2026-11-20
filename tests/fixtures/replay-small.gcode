@@ -2,6 +2,8 @@
 ; their feedrate so the planner's minimum-segment-time slowdown never applies.
 ; Also covers Marlin's relative-mode rules: G91 makes E relative even after M82,
 ; and G90 makes E absolute even after M83.
+; G92 is modelled for E only (or no words): the G92 E0 below changes nothing,
+; since E is already 0; G92 X/Y/Z is refused by both harness and model.
 G28
 G90
 M82

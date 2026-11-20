@@ -8,6 +8,14 @@
 # the minimum segment time, where the per-block speeds are not modelled).
 # Speed model: nominal = feedrate, reduced so no axis exceeds its max feedrate
 # (valid while every segment lasts >= the 20 ms minimum segment time).
+# Accepted subset, the same one harness-real --gcode accepts:
+#   motion/state: G0/G1, G90/G91, M82/M83, G21, G28 (position reset to 0,0,0),
+#                 G92 E<value> or bare G92 (no-op), M400;
+#   ignored:      G4, M104, M109, M140, M190, M106, M107, M84, M73, M105 and
+#                 M117 (free text).
+# Anything else, including G92 with X/Y/Z or any word other than E, is named
+# on stderr with its line number and makes the model exit 3 after the totals,
+# so a file the model cannot follow is never reported as checked.
 import math, re, struct, sys
 
 def f32(x):  # round to IEEE single, as the firmware's float positions are
@@ -16,6 +24,9 @@ def f32(x):  # round to IEEE single, as the firmware's float positions are
 SPM = [f32(v) for v in (80.0, 80.0, 400.0, 715.12)]
 MAXF = [500.0, 500.0, 20.0, 30.0]
 MIN_STEPS = 4   # MIN_STEPS_PER_SEGMENT in harness/config/Configuration_adv.h
+NEAR_ZERO = f32(0.000001)   # Marlin's NEAR_ZERO bound (core/macros.h)
+STATE = {'G0', 'G1', 'G90', 'G91', 'M82', 'M83', 'G21', 'G28', 'G92', 'M400'}
+IGNORED = {'G4', 'M104', 'M109', 'M140', 'M190', 'M106', 'M107', 'M84', 'M73', 'M105', 'M117'}
 
 def lround(x):  # round half away from zero, like Marlin's LROUND
     return int(math.copysign(math.floor(abs(x) + 0.5), x))
@@ -31,8 +42,14 @@ def main(path, totals_only=False):
     blocks = 0
     tot = [0, 0, 0, 0]
     path_mm = 0.0
-    moves = dropped = 0
-    for raw in open(path):
+    moves = dropped = unsupported = 0
+
+    def refuse(lineno, what):
+        nonlocal unsupported
+        print('unsupported line %d: %s' % (lineno, what), file=sys.stderr)
+        unsupported += 1
+
+    for lineno, raw in enumerate(open(path), 1):
         line = raw.split(';', 1)[0].strip()
         if not line:
             continue
@@ -40,14 +57,20 @@ def main(path, totals_only=False):
         # exponent ("X10E2" is X10 then E2) and need no space between words.
         head = re.match(r'([A-Za-z])(\d+)(?![\d.])', line)
         if not head:   # no command number, or a fractional one such as G1.5
-            print('unsupported line: malformed command', file=sys.stderr)
-            sys.exit(3)
+            refuse(lineno, 'malformed command')
+            continue
         cmd = head.group(1).upper() + str(int(head.group(2)))
-        if cmd == 'M117':   # free text, ignored like the replay does
+        if cmd not in STATE and cmd not in IGNORED:
+            refuse(lineno, cmd)
+            continue
+        if cmd in IGNORED:   # no motion; M117 text is never parsed as words
             continue
         w = {}
+        novalue = set()   # letters given without a number
         for m in re.finditer(r'([A-Za-z])\s*([-+]?(?:\d+\.?\d*|\.\d+))?', line[head.end():]):
             w[m.group(1).upper()] = float(m.group(2) or 0.0)
+            if m.group(2) is None:
+                novalue.add(m.group(1).upper())
         if cmd in ('G0', 'G1'):
             if 'F' in w:
                 feed = f32(w['F'] / 60.0)
@@ -67,8 +90,13 @@ def main(path, totals_only=False):
                 continue
             pos_steps = tsteps
             dmm = [abs(d[i]) / SPM[i] for i in range(4)]
-            xyz = math.sqrt(dmm[0] ** 2 + dmm[1] ** 2 + dmm[2] ** 2)
-            mm = xyz if any(d[:3]) else dmm[3]
+            # planner.cpp _populate_block(): when no X/Y/Z axis has at least
+            # MIN_STEPS_PER_SEGMENT steps (!XYZ_HAS_ENOUGH_STEPS) the block
+            # length is the E distance, even if X/Y/Z move a step or three.
+            if any(abs(x) >= MIN_STEPS for x in d[:3]):
+                mm = math.sqrt(dmm[0] ** 2 + dmm[1] ** 2 + dmm[2] ** 2)
+            else:
+                mm = dmm[3]
             nominal = feed
             for i in range(4):
                 if dmm[i] > 0:
@@ -85,11 +113,25 @@ def main(path, totals_only=False):
         elif cmd == 'M83': emode = 2
         elif cmd == 'G28': pos[0] = pos[1] = pos[2] = 0.0; pos_steps[:3] = [0, 0, 0]
         elif cmd == 'G92':
-            for i, a in enumerate('XYZE'):
-                if a in w:
-                    pos[i] = f32(w[a]); pos_steps[i] = lround(f32(pos[i] * SPM[i]))
+            # Only E with a value, or no word at all (a no-op). Workspace
+            # offsets are on in this config, so G92 X/Y/Z would shift the
+            # workspace rather than the position: refused, nothing changed.
+            if set(w) - {'E'} or 'E' in novalue:
+                refuse(lineno, 'G92 with a word other than E, or E without a value')
+            elif 'E' in w:
+                # G92.cpp sets E only when it changes by more than NEAR_ZERO,
+                # then planner.set_e_position_mm() re-rounds the E baseline
+                # alone; the X/Y/Z step baselines are left as they are.
+                e = f32(w['E'])
+                if abs(f32(e - pos[3])) > NEAR_ZERO:
+                    pos[3] = e
+                    pos_steps[3] = lround(f32(e * SPM[3]))
+        # G21 (already mm) and M400 (no queue here) change nothing in the model
     print('replay moves=%d short_or_zero=%d blocks=%d' % (moves, dropped, blocks))
     print('replay steps=%d,%d,%d,%d' % tuple(tot))
     print('replay path_mm=%.3f' % path_mm)
+    if unsupported:
+        print('replay unsupported=%d' % unsupported)
+        sys.exit(3)
 
 main([a for a in sys.argv[1:] if a != '--totals'][0], '--totals' in sys.argv)

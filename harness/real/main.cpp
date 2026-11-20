@@ -142,8 +142,9 @@ static bool parse_command(const std::string &line, char *cmd, int *num, size_t *
   return true;
 }
 
-static void parse_words(const std::string &line, size_t i, float val[26], bool has[26]) {
-  for (int k = 0; k < 26; ++k) has[k] = false;
+// has[] marks every word letter seen; hasval[] only those followed by a number.
+static void parse_words(const std::string &line, size_t i, float val[26], bool has[26], bool hasval[26]) {
+  for (int k = 0; k < 26; ++k) has[k] = hasval[k] = false;
   while (i < line.size()) {
     if (isspace((unsigned char)line[i])) { ++i; continue; }
     const char w = (char)toupper((unsigned char)line[i++]);
@@ -152,6 +153,7 @@ static void parse_words(const std::string &line, size_t i, float val[26], bool h
     const char *end = nullptr;
     val[w - 'A'] = parse_decimal(line.c_str() + i, &end);
     has[w - 'A'] = true;
+    hasval[w - 'A'] = end != line.c_str() + i;
     i = end - line.c_str();
   }
 }
@@ -177,7 +179,7 @@ static int replay_gcode(const char *path, bool print_blocks) {
     ++lineno;
     const size_t semi = line.find(';');
     if (semi != std::string::npos) line.erase(semi);
-    char cmd; int num; size_t rest; float v[26]; bool has[26];
+    char cmd; int num; size_t rest; float v[26]; bool has[26], hasval[26];
     if (!parse_command(line, &cmd, &num, &rest)) {
       printf("unsupported line %ld: malformed command\n", lineno);
       ++unsupported;
@@ -186,7 +188,7 @@ static int replay_gcode(const char *path, bool print_blocks) {
     if (cmd == 0) continue;   // blank line
     // M117 carries free text, not words: ignore it before any word parsing.
     if (cmd == 'M' && num == 117) { ++r.ignored; continue; }
-    parse_words(line, rest, v, has);
+    parse_words(line, rest, v, has, hasval);
     const int code = cmd * 1000 + num;   // e.g. 'G'*1000 + 1
     if (cmd == 'G' && (num == 0 || num == 1)) {
       if (has['F' - 'A']) feed = v['F' - 'A'] / 60.0f;
@@ -206,17 +208,37 @@ static int replay_gcode(const char *path, bool print_blocks) {
     else if (code == 'M' * 1000 + 82) e_mode = 1;
     else if (code == 'M' * 1000 + 83) e_mode = 2;
     else if (code == 'G' * 1000 + 21) { /* millimetres: already the unit */ }
-    else if (code == 'G' * 1000 + 28 || code == 'G' * 1000 + 92) {
-      // Positions change without motion: let queued blocks finish first.
+    else if (code == 'G' * 1000 + 28) {
+      // Simplified homing: a position reset to 0,0,0 without motion. Let
+      // queued blocks finish first, then resync every axis like Marlin's
+      // sync_plan_position() after homing.
       while (planner.has_blocks_queued()) pop_block(r);
-      if (num == 28) { pos.x = pos.y = pos.z = 0; }
-      else {
-        if (has['X' - 'A']) pos.x = v['X' - 'A'];
-        if (has['Y' - 'A']) pos.y = v['Y' - 'A'];
-        if (has['Z' - 'A']) pos.z = v['Z' - 'A'];
-        if (has['E' - 'A']) pos.e = v['E' - 'A'];
-      }
+      pos.x = pos.y = pos.z = 0;
       planner.set_position_mm(pos);
+    }
+    else if (code == 'G' * 1000 + 92) {
+      // Only G92 with no words (a no-op) or with E and a value is modelled.
+      // Workspace offsets are on in this config, so a real G92 X/Y/Z shifts
+      // the workspace instead of the planner position; that is not modelled,
+      // so any other word is refused here, before anything changes.
+      bool other = false;
+      for (int k = 0; k < 26; ++k) if (has[k] && k != 'E' - 'A') other = true;
+      if (other || (has['E' - 'A'] && !hasval['E' - 'A'])) {
+        printf("unsupported line %ld: G92 with %s (only G92 E<value> or bare G92 is modelled)\n", lineno,
+          other ? "a word other than E" : "E and no value");
+        ++unsupported;
+      }
+      else if (has['E' - 'A']) {
+        // G92.cpp: E is set directly and synced with sync_plan_position_e(),
+        // i.e. planner.set_e_position_mm(), only when it changes by more than
+        // NEAR_ZERO; X/Y/Z planner positions are never touched. Queued blocks
+        // are drained first (as before), so the setter takes its no-blocks
+        // branch; the sync block the firmware would queue instead is not modelled.
+        while (planner.has_blocks_queued()) pop_block(r);
+        const float e = v['E' - 'A'];
+        if (!NEAR_ZERO(e - pos.e)) { pos.e = e; planner.set_e_position_mm(pos.e); }
+      }
+      // bare G92: no word seen, nothing changes (as in G92.cpp)
     }
     else if (code == 'M' * 1000 + 400) { while (planner.has_blocks_queued()) pop_block(r); }   // finish moves
     else if (cmd == 'G' && num == 4) ++r.ignored;

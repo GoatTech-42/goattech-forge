@@ -1,4 +1,4 @@
-; Contains a command the replay cannot model: it must fail closed.
+; G2 (line 5) is outside the subset: replay and model must both exit 3 naming it.
 G28
 G90
 G1 X10 Y10 F3000
