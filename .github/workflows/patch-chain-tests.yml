@@ -47,6 +47,7 @@ jobs:
           bash tests/test-bed-target.sh "$T"
           bash tests/test-diag-sd-failures.sh "$T"
           bash tests/test-diag-volumetric.sh "$T"
+          bash tests/test-diag-cooling.sh "$T"
           bash tests/test-menu-source-contract.sh "$T"
       - name: Real planner and temperature host harness (F1a, host simulation only)
         run: bash tests/test-harness-real-planner.sh "$RUNNER_TEMP/marlin"

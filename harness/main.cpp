@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
     char header[80], m140[32], m190[32];
     snprintf(header, sizeof(header), "; temps nozzle=200 bed=%u (confirmed", (unsigned)bed.want);
     snprintf(m140, sizeof(m140), "M140 S%u\n", (unsigned)bed.want);
-    snprintf(m190, sizeof(m190), "M190 S%u\n", (unsigned)bed.want);
+    snprintf(m190, sizeof(m190), "M190 R%u\n", (unsigned)bed.want);
     expect(output.find(header) != std::string::npos,
            "bed target: header reports executable target");
     expect(output.find(m140) != std::string::npos,
