@@ -12,7 +12,10 @@
 #  5-10. E-only G92 keeps the X/Y/Z baseline, other G92 forms and unknown
 #     commands fail closed in both programs, half-step E resets, short X/Y/Z
 #     segments with extrusion, the supported-command subset, and the E mode
-#     after each G90/G91 and M82/M83 ordering against Marlin's own GcodeSuite.
+#     after each G90/G91 and M82/M83 ordering against Marlin's own GcodeSuite;
+#  11. review cases: packed command keys, G28 E resync, unreadable word text,
+#     repeated G92 E words;
+#  12. G0/G1 axis words with no value are refused without changing state.
 # Host simulation only: no stepper ISR, no heaters, no time. Not hardware
 # validation.
 set -u
@@ -98,7 +101,7 @@ import sys
 open(sys.argv[1], 'w').write('G28\nG90\nG1 X10 F600 ;' + ' ' * 1500 + 'G1 X100 F600\nG1 X20 F600\n')
 PY
 "$H" --gcode "$OUT/long.gcode" >"$OUT/long.txt"
-grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a comment longer than the read buffer is not replayed as a move (2 moves)"
+grep -q 'moves=2 ' "$OUT/long.txt"; chk $? "a 1500-character comment is read whole and its G1 text is not replayed as a move (2 moves)"
 "$H" --gcode "$OUT" >"$OUT/dir.txt" 2>&1; rc=$?
 [ $rc != 0 ]; chk $? "a read error is not reported as success (exit $rc)"
 

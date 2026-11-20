@@ -13,6 +13,7 @@
 #                 G92 E<value> or bare G92 (no-op), M400;
 #   ignored:      G4, M104, M109, M140, M190, M106, M107, M84, M73, M105 and
 #                 M117 (free text).
+# A G0/G1 whose last X, Y, Z or E word has no number is refused too.
 # Anything else, including G92 with X/Y/Z or any word other than E, is named
 # on stderr with its line number and makes the model exit 3 after the totals,
 # so a file the model cannot follow is never reported as checked.
@@ -94,6 +95,15 @@ def main(path, totals_only=False):
         if cmd in IGNORED:   # no motion
             continue
         if cmd in ('G0', 'G1'):
+            # A final X/Y/Z/E word with no number ("G1 X", "G1 X10 X"): pinned
+            # Marlin's get_destination_from_command() reads axes with
+            # parser.seenval(), false for it, so the axis keeps its position.
+            # Not modelled, so refused as the replay does, before F or any
+            # position changes.
+            missing = [a for a in 'XYZE' if a in novalue]
+            if missing:
+                refuse(lineno, '%s %s without a value' % (cmd, missing[0]))
+                continue
             if 'F' in w:
                 feed = f32(w['F'] / 60.0)
             t = list(pos)
