@@ -31,7 +31,7 @@ FORGE_PATCH2="patches/forge-74-sdclose-guard.patch"
 EXPECTED_PATCH2_SHA256="99e96511b52520bce35d9ed6d72d54cc8918902cdfa5a67140c02a49d031801f"
 # Patch 3: Forge diagnostics start guard (applied after the #74 patch, same strict pin)
 FORGE_PATCH3="patches/forge-diag-startguard.patch"
-EXPECTED_PATCH3_SHA256="f71dce2343098c57f6f38a0b0b3e67bac586701c38626b40443eb7c1a752fdf2"
+EXPECTED_PATCH3_SHA256="66cf3ddaa92a12d0a15886218bc31ced7b35808a2b6b796430f8aa3e1d51a037"
 # Patch 4: config restore to the krasnaya_4 baseline (S_CURVE_ACCELERATION + LIN_ADVANCE)
 FORGE_PATCH4="patches/forge-config-restore.patch"
 EXPECTED_PATCH4_SHA256="47c5fe85488ae6a3ca13746645ee47a239d600adac90096b48d75e04217d31d4"
@@ -45,7 +45,7 @@ EXPECTED_PATCH6_SHA256="e9da35d93df76c5dfbd28d575fd93bc0ec0881a58cf8c57b5594bfe9
 # full pinned patch chain to the pinned upstream source. Identical for both boards
 # (the patched files are byte-identical across the two pins).
 EXPECTED_ADV_SHA256="f7d60f5273e82b28c6ed34af506fb11faef0df0cea1cc3984084606fb1dbed60"
-EXPECTED_CARDREADER_SHA256="04d9384556df24f160e76b7d70bab201aeeb1b707247694e923b393c1d54717f"
+EXPECTED_CARDREADER_SHA256="8224089da55c2ccadcf2acd816b36bd37b9aff225833e808e3160e1dd5d19fdf"
 EXPECTED_FORGEDIAGH_SHA256="7e62dcdb10db6810cdbdbb4ecf52c697e86b9459fb32637416fb7b555173e652"
 EXPECTED_FORGEDIAGCPP_SHA256="64a3f87be627a5690b49363cd936c94b65c04643259c0c1d269f85766dea02a8"
 EXPECTED_DWINCPP_SHA256="e042b0320c0f2df40a577a93ee33444648ea7239be1f113d4b4d125a719b702b"
