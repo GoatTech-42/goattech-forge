@@ -7,6 +7,8 @@
 #          chain (closed file -> read -1 -> 5 SD errors -> abortFilePrintNow).
 #          Source-derived model, NOT firmware execution: on-printer behavior
 #          test stays pending (compile != validation).
+# Containment is a narrow pinned-region lexical check: line splices and digit
+# separators inside Goto_MainMenu are refused by design, pending source review.
 set -u
 TREE="${1:?usage: test-74-sdclose.sh <marlin-tree>}"
 DWIN="$TREE/Marlin/src/lcd/dwin/creality/dwin.cpp"
@@ -32,6 +34,42 @@ def need(cond,msg):
     global ok
     print(("PASS: " if cond else "FAIL: ")+msg)
     ok = ok and cond
+
+# --- Literal pinned-source containment contract ---
+# Strip comments/literals inside the pinned function region so neither a
+# warning comment nor a string can satisfy executable-source checks. This is
+# deliberately a narrow spelling/shape contract, not a C++ parser or proof of
+# preprocessor/runtime behavior. New valid source shapes need explicit review.
+# This narrow region spelling is intentional: reject unfamiliar source shapes
+# for review rather than claim C++ translation-phase correctness.
+regions = re.findall(r'^void Goto_MainMenu\(\)\n\{[\s\S]*?^\}', dwin, re.M)
+need(len(regions) == 1, 'Goto_MainMenu closefile containment contract: literal region')
+region = regions[0] if len(regions) == 1 else ''
+unsupported = (re.search(r'\\\r?\n', region) is not None
+               or re.search(r"[0-9A-Fa-f]'[0-9A-Za-z]", region) is not None)
+need(not unsupported,
+     'Goto_MainMenu closefile containment contract: unsupported lexical construct '
+     '(line splice or digit separator requires review)')
+lexical = r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\''
+raw_literal = r'(?:u8|u|U|L)?R"(?P<delimiter>[^ ()\\\t\r\n]{0,16})\([\s\S]*?\)(?P=delimiter)"'
+code = re.sub(raw_literal + '|' + lexical, ' ', region)
+defs = list(re.finditer(r'\bvoid\s+Goto_MainMenu\s*\(\s*\)\s*\{', code))
+body = ''
+if len(defs) == 1:
+    start = defs[0].end()
+    depth = 1
+    for end in range(start, len(code)):
+        depth += (code[end] == '{') - (code[end] == '}')
+        if depth == 0:
+            body = code[start:end]
+            break
+close = r'\bcard\s*\.\s*closefile\s*\('
+guarded = (r'\bif\s*\(\s*!Marlin::printJobOngoing\s*\(\s*\)\s*&&\s*'
+           r'!Marlin::printingIsPaused\s*\(\s*\)\s*\)\s*'
+           r'card\s*\.\s*closefile\s*\(\s*\)\s*;')
+need(bool(body) and len(re.findall(close, body)) == 1
+     and len(re.findall(guarded, body)) == 1,
+     'Goto_MainMenu closefile containment contract')
 
 # --- REAL predicate definitions extracted from pinned source ---
 need('bool Marlin::printJobOngoing() { return print_job_timer.isRunning() || card.isStillPrinting(); }' in core,
