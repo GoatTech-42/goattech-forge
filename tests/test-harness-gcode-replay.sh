@@ -72,13 +72,18 @@ done
 # --- 3. negative checks
 # 3a. wrong X steps/mm reaches the real planner and is caught by the model
 "$H" --steps-x 81 --gcode "$FIX/replay-small.gcode" --blocks >"$OUT/neg1.txt"
-n=$(diff <(grep '^rblock ' "$OUT/neg1.txt") <(grep '^rblock ' "$OUT/fix.ref") | grep -c '^<')
+# Materialize diff inputs: process substitutions inside $(...) leave unreaped
+# subshells on some runners even after diff has read their complete output.
+grep '^rblock ' "$OUT/neg1.txt" >"$OUT/neg1.blocks"
+grep '^rblock ' "$OUT/fix.ref" >"$OUT/reference.blocks"
+n=$(diff "$OUT/neg1.blocks" "$OUT/reference.blocks" | grep -c '^<')
 [ "$n" -gt 0 ]; chk $? "wrong X steps/mm (81) is caught ($n blocks differ from the model)"
 # 3b. a motion-breaking edit (one move shifted 1 mm) is caught against the golden model
 sed 's/^G1 X60 Y60 E4.5 F1800$/G1 X61 Y60 E4.5 F1800/' "$FIX/replay-small.gcode" >"$OUT/edited.gcode"
 cmp -s "$OUT/edited.gcode" "$FIX/replay-small.gcode"; chk $([ $? = 1 ]; echo $?) "edit was applied to the fixture copy"
 "$H" --gcode "$OUT/edited.gcode" --blocks >"$OUT/neg2.txt"
-n=$(diff <(grep '^rblock ' "$OUT/neg2.txt") <(grep '^rblock ' "$OUT/fix.ref") | grep -c '^<')
+grep '^rblock ' "$OUT/neg2.txt" >"$OUT/neg2.blocks"
+n=$(diff "$OUT/neg2.blocks" "$OUT/reference.blocks" | grep -c '^<')
 [ "$n" -gt 0 ]; chk $? "edited move (X61 instead of X60) is caught ($n blocks differ from the golden model)"
 # 3c. unsupported motion command fails closed
 "$H" --gcode "$FIX/replay-unsupported.gcode" >"$OUT/neg3.txt"; rc=$?
