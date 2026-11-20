@@ -251,6 +251,32 @@ for a in G90 G91 M82 M83; do for b in G90 G91 M82 M83; do
   both_steps "emode$a$b" "$exp" "$a then $b: two G1 E1 moves"
 done; done
 
+# 11. CodeRabbit review of 30ecaba.
+# 11a. A command is its letter and its number: F1092 is not G92 (the old packed
+#      letter*1000+number key made them equal), nor F1090/F1028 G90/G28, nor
+#      L1082/L1400 M82/M400. All are outside the subset, so both exit 3.
+for c in 'F1092 E5' 'F1090' 'F1028' 'L1082' 'L1400'; do
+  n="pack$(echo "$c" | cut -d' ' -f1)"
+  run_pair "$n" "G90\\nM82\\n$c\\nG1 X10 F600\\n"
+  [ $hrc = 3 ] && grep -q "^unsupported line 3: $(echo "$c" | cut -d' ' -f1)\$" "$OUT/$n.h"; chk $? "harness refuses '$c' as its own command, exit 3 (got $hrc)"
+  [ $mrc = 3 ]; chk $? "model refuses '$c', exit 3 (got $mrc)"
+done
+# 11b. G28 resyncs E as well: homing ends in sync_plan_position(), i.e.
+#      planner.set_position_mm(), which re-rounds every axis. G1 E0.002 is
+#      1 step (1.43) and deferred, so after G28 the E baseline is
+#      LROUND(0.002f*715.12f) = 1 and G1 E1 is 715 - 1 = 714 steps.
+run_pair g28e 'G90\nM82\nG1 E0.002 F600\nG28\nG1 E1 F600\n'
+both_steps g28e 0,0,0,714 "deferred E before G28 is resynced by homing"
+# 11c. Word text the parser cannot read (a checksum, a stray sign) is refused,
+#      not skipped: the harness stops with exit 3 on a bad token, and the
+#      model must not accept the rest of the line either.
+for c in 'G92 E5*7' 'G1 X10*7' 'G1 X10 E-' 'G1 X.' 'M104 S200*7'; do
+  n="junk$(echo "$c" | tr -dc 'A-Z0-9')"
+  run_pair "$n" "G90\\nM82\\n$c\\n"
+  [ $hrc = 3 ]; chk $? "harness refuses unreadable words in '$c', exit 3 (got $hrc)"
+  [ $mrc = 3 ] && grep -q '^unsupported line 3: ' "$OUT/$n.merr"; chk $? "model refuses unreadable words in '$c' with its line number, exit 3 (got $mrc)"
+done
+
 echo "NOTE: host simulation of the real planner; no hardware validation."
 [ $fails = 0 ] && echo "RESULT: all checks passed" || echo "RESULT: $fails failure(s)"
 [ $fails = 0 ]
