@@ -95,16 +95,18 @@ def main(path, totals_only=False):
         if cmd in IGNORED:   # no motion
             continue
         if cmd in ('G0', 'G1'):
-            # A final X/Y/Z/E word with no number ("G1 X", "G1 X10 X"): pinned
+            # A final X/Y/Z/E/F word with no number ("G1 X", "G1 X10 X"): pinned
             # Marlin's get_destination_from_command() reads axes with
             # parser.seenval(), false for it, so the axis keeps its position.
+            # The feed-rate reader keeps its prior value via floatval('F') > 0;
+            # floatval calls seenval and defaults to zero for a bare F.
             # Not modelled, so refused as the replay does, before F or any
             # position changes.
-            missing = [a for a in 'XYZE' if a in novalue]
+            missing = [a for a in 'XYZEF' if a in novalue]
             if missing:
                 refuse(lineno, '%s %s without a value' % (cmd, missing[0]))
                 continue
-            if 'F' in w:
+            if 'F' in w and f32(w['F']) > 0:
                 feed = f32(w['F'] / 60.0)
             t = list(pos)
             for i, a in enumerate('XYZE'):
